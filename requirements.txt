@@ -1,0 +1,2 @@
+psutil>=5.9
+pyobjc-framework-Cocoa>=10.0
