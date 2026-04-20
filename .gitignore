@@ -1,4 +1,25 @@
+# Python legacy
+legacy-python/venv/
+legacy-python/__pycache__/
 venv/
 __pycache__/
 *.pyc
+
+# macOS
 .DS_Store
+
+# Xcode
+build/
+DerivedData/
+xcuserdata/
+*.xcuserdatad/
+*.xcuserstate
+.swiftpm/
+
+# XcodeGen output (project file is regenerated from project.yml — don't commit)
+SystemMonitor.xcodeproj/
+
+# Release artifacts
+distribution/output/
+*.dmg
+*.zip

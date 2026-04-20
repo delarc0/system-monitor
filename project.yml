@@ -1,0 +1,58 @@
+name: SystemMonitor
+options:
+  bundleIdPrefix: se.lab37.systemmonitor
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "15.0"
+  createIntermediateGroups: true
+
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.6.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "Bark Dev"
+    ENABLE_HARDENED_RUNTIME: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+targets:
+  SystemMonitor:
+    type: application
+    platform: macOS
+    sources:
+      - SystemMonitor
+    dependencies:
+      - package: Sparkle
+    postBuildScripts:
+      - name: Deep re-sign with Bark Dev (stabilize TCC grants across rebuilds)
+        script: |
+          if [ "${CONFIGURATION}" = "Debug" ]; then
+            /usr/bin/codesign --force --deep --sign "Bark Dev" \
+              "${BUILT_PRODUCTS_DIR}/${WRAPPER_NAME}" || true
+          fi
+        runOnlyWhenInstalling: false
+        basedOnDependencyAnalysis: false
+    info:
+      path: SystemMonitor/Info.plist
+      properties:
+        LSUIElement: YES
+        LSApplicationCategoryType: public.app-category.utilities
+        LSMinimumSystemVersion: "14.0"
+        NSHumanReadableCopyright: "© LAB37"
+        CFBundleDisplayName: System Monitor
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        SUEnableInstallerLauncherService: NO
+        SUFeedURL: https://delarc0.github.io/system-monitor/appcast.xml
+        SUPublicEDKey: "REPLACE_WITH_SPARKLE_PUBLIC_KEY"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: se.lab37.systemmonitor.mac
+        CODE_SIGN_ENTITLEMENTS: SystemMonitor/SystemMonitor.entitlements
