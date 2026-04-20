@@ -2,63 +2,69 @@
 
 **Lightweight macOS menu bar system monitor by LAB37.**
 
-Live CPU, GPU, memory, and network stats in your menu bar. Click to see a detailed panel with a real-time network throughput graph. No bloat, no Dock icon, no cloud.
+Native Swift/SwiftUI menu bar app. Live CPU, GPU, memory, and network stats — color-coded in your menu bar, full detail one click away. No bloat, no Dock icon, no cloud.
 
 ## Features
 
-- **Menu bar CPU %** - Color-coded (green/orange/red) always visible in your menu bar
-- **GPU utilization** - Apple Silicon GPU usage via ioreg (no sudo required)
-- **Memory usage** - RAM used/total with swap info
-- **Network graph** - Live download/upload throughput with 60-second area chart
-- **Top processes** - 5 most CPU-hungry processes at a glance
-- **Dark panel** - Clean, high-contrast dropdown with white-on-dark design
-- **Zero permissions** - No sudo, no accessibility, no microphone. Just run it.
-
----
+- **Menu bar pill** — CPU % and memory % side-by-side, per-segment color-coded (green → orange → red via smooth hue interpolation)
+- **Animated gauges** — CPU, GPU, Memory with spring-animated fills
+- **Network graph** — Swift Charts area chart with gradient fills for download (blue) and upload (orange)
+- **Top processes** — segmented Top CPU / Top Memory, memory aggregated by app name so Chrome-style multi-process apps show real totals
+- **P/E core split** — average load per core cluster shown under the CPU bar on Apple Silicon
+- **Preferences** — update interval (1/2/5 s), menu bar display mode (CPU / CPU+MEM / CPU+GPU / All), launch at login
+- **Zero permissions** — no sudo, no accessibility, no microphone. Pure IOKit + Mach APIs.
 
 ## Requirements
 
-- macOS 13+ (Ventura or later)
-- Apple Silicon (M1/M2/M3/M4)
-- Python 3.9+
+- macOS 14 (Sonoma) or later
+- Apple Silicon (M1–M5) — Intel works minus the P/E core split
 
-## Install
+## Build & run locally
 
 ```bash
-git clone https://github.com/delarc0/system-monitor.git
-cd system-monitor
-chmod +x run.sh
-./run.sh
+brew install xcodegen
+xcodegen generate
+open SystemMonitor.xcodeproj
+# ⌘R in Xcode, or:
+xcodebuild -project SystemMonitor.xcodeproj -scheme SystemMonitor \
+  -configuration Debug -derivedDataPath build \
+  CODE_SIGN_IDENTITY="-" CODE_SIGN_STYLE=Automatic build
+open build/Build/Products/Debug/SystemMonitor.app
 ```
 
-The run script creates a virtual environment, installs dependencies, and launches the app. First launch takes a few seconds for setup.
-
-## Usage
-
-1. A CPU percentage appears in your menu bar (e.g. `47%`)
-2. **Click it** and select **Show Details** to open the stats panel
-3. The panel shows CPU, GPU, memory bars and a live network graph
-4. Stats update every 2 seconds
-5. **Quit** from the menu bar dropdown
-
-## Dependencies
-
-- `psutil` - CPU, memory, network, process metrics
-- `pyobjc-framework-Cocoa` - macOS menu bar integration (NSStatusItem, AppKit)
+The `Xcode.xcodeproj` is regenerated from `project.yml` — don't commit it (it's in `.gitignore`).
 
 ## Architecture
 
 ```
-main.py       Entry point, NSApplication setup
-tray.py       Menu bar icon with color-coded CPU %
-panel.py      Dark dropdown panel with stats and network graph
-monitor.py    Background thread polling metrics every 2s
-cpu.py        CPU % overall, per-core P/E split, top processes
-gpu.py        GPU utilization via ioreg (no sudo)
-memory.py     RAM and swap usage via psutil
-network.py    Network speed with 60s rolling history
-config.py     User preferences (~/Library/Application Support/)
+SystemMonitor/
+  SystemMonitorApp.swift       @main — MenuBarExtra scene + Settings scene
+  AppPreferences.swift         UserDefaults-backed preferences + SMAppService
+  UpdaterController.swift      Sparkle wrapper
+  Metrics/
+    Snapshot.swift             Data types
+    Sysctl.swift               Typed sysctlbyname wrappers
+    CPUSampler.swift           host_statistics / host_processor_info
+    MemorySampler.swift        host_statistics64(HOST_VM_INFO64)
+    GPUSampler.swift           IOKit / AGXAccelerator
+    NetworkSampler.swift       getifaddrs + if_data
+    ProcessSampler.swift       /bin/ps → aggregated by name
+    MetricsService.swift       Actor-ish orchestrator, publishes Snapshot
+  Views/
+    LoadColor.swift            Green→red HSL interpolation helper
+    MenuBarLabel.swift         Color-coded status item content
+    PanelView.swift            Root panel composition
+    GaugeRow.swift             Icon + label + animated capsule + %
+    NetworkChartView.swift     Swift Charts area chart
+    ProcessListView.swift      Segmented Top CPU / Top Memory
+    SettingsView.swift         Preferences + About tabs
 ```
+
+## Distribution
+
+Sparkle auto-update is wired (`project.yml` has Sparkle SPM, Info.plist has `SUFeedURL` + `SUPublicEDKey` placeholder). Before the first signed release, mint an EdDSA keypair and paste the public key into `project.yml`. See [distribution/README.md](distribution/README.md) for the release recipe (mirrors Bark-mac).
+
+Updates are blocked on Apple Developer ID approval — Sparkle refuses to apply updates that aren't both EdDSA-signed and codesigned by a trusted identity.
 
 ---
 
