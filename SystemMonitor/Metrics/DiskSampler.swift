@@ -56,9 +56,7 @@ final class DiskSampler {
             freeGB: capacity.free,
             percent: capacity.total > 0 ? used / capacity.total * 100 : 0,
             readBps: read,
-            writeBps: write,
-            readString: NetworkSampler.format(read),
-            writeString: NetworkSampler.format(write)
+            writeBps: write
         )
     }
 

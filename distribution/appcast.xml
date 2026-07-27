@@ -3,11 +3,17 @@
     <channel>
         <title>System Monitor</title>
         <link>https://delarc0.github.io/system-monitor/appcast.xml</link>
-        <description>System Monitor — lightweight macOS menu bar monitor. Release feed.</description>
+        <description>System Monitor: lightweight macOS menu bar monitor. Release feed.</description>
         <language>en</language>
 
         <!--
-        Release entries look like this once Dev ID + notarization are live:
+        Not hosted yet. Signing and notarization both work; what is still
+        missing is the Sparkle EdDSA keypair and GitHub Pages hosting.
+
+        Do not hand-write these entries. Run generate_appcast (see
+        ../distribution/README.md) so the length and edSignature always match
+        the archive. A mistyped attribute breaks every client's update check
+        silently. The shape is:
 
         <item>
             <title>Version 0.2.0</title>

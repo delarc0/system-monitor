@@ -2,7 +2,6 @@ import Foundation
 
 struct CPUSample: Sendable, Equatable {
     var overall: Double           // 0..100
-    var perCore: [Double]
     var pCores: [Double]
     var eCores: [Double]
     var pCount: Int
@@ -12,11 +11,8 @@ struct CPUSample: Sendable, Equatable {
 struct MemorySample: Sendable, Equatable {
     var totalGB: Double
     var usedGB: Double
-    var availableGB: Double
     var percent: Double            // 0..100
-    var swapTotalGB: Double
     var swapUsedGB: Double
-    var swapPercent: Double
 }
 
 struct GPUSample: Sendable, Equatable {
@@ -28,8 +24,6 @@ struct NetworkSample: Sendable, Equatable {
     var uploadBps: Double
     var downloadHistory: [Double]
     var uploadHistory: [Double]
-    var downloadString: String
-    var uploadString: String
     var windowSeconds: Int         // wall-clock span the history covers
     var capacity: Int              // slots the window holds once warmed up
 }
@@ -41,8 +35,6 @@ struct DiskSample: Sendable, Equatable {
     var percent: Double            // capacity used, 0..100
     var readBps: Double
     var writeBps: Double
-    var readString: String
-    var writeString: String
 }
 
 struct ProcessEntry: Sendable, Identifiable, Equatable {
@@ -104,15 +96,6 @@ struct MetricHistory: Sendable, Equatable {
     var gpu: [Double] = []
     var memory: [Double] = []
     var disk: [Double] = []
-
-    func values(for metric: MetricKind) -> [Double] {
-        switch metric {
-        case .cpu: return cpu
-        case .gpu: return gpu
-        case .memory: return memory
-        case .disk: return disk
-        }
-    }
 }
 
 struct Snapshot: Sendable, Equatable {

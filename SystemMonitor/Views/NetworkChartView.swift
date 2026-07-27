@@ -80,9 +80,9 @@ struct NetworkChartView: View {
             .frame(height: 56)
 
             HStack(spacing: 14) {
-                Label(sample.downloadString, systemImage: "arrow.down")
+                Label(formatByteRate(sample.downloadBps), systemImage: "arrow.down")
                     .foregroundStyle(.blue)
-                Label(sample.uploadString, systemImage: "arrow.up")
+                Label(formatByteRate(sample.uploadBps), systemImage: "arrow.up")
                     .foregroundStyle(.orange)
                 Spacer()
             }
@@ -112,9 +112,9 @@ struct NetworkChartView: View {
     private var scaleLabel: String {
         switch scale {
         case .shared:
-            return "±\(NetworkSampler.format(downloadScale)) · \(windowLabel)"
+            return "±\(formatByteRate(downloadScale)) · \(windowLabel)"
         case .perDirection:
-            return "↓\(NetworkSampler.format(downloadScale)) ↑\(NetworkSampler.format(uploadScale)) · \(windowLabel)"
+            return "↓\(formatByteRate(downloadScale)) ↑\(formatByteRate(uploadScale)) · \(windowLabel)"
         }
     }
 

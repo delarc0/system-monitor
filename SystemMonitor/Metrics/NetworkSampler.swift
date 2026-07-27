@@ -80,8 +80,6 @@ final class NetworkSampler {
             uploadBps: up,
             downloadHistory: downloadHistory,
             uploadHistory: uploadHistory,
-            downloadString: Self.format(down),
-            uploadString: Self.format(up),
             windowSeconds: Int(Double(historyLength) * interval),
             capacity: historyLength
         )
@@ -151,15 +149,5 @@ final class NetworkSampler {
         guard nameLength > 0 else { return nil }
         let bytes = withUnsafeBytes(of: sdl.sdl_data) { Array($0.prefix(nameLength)) }
         return String(decoding: bytes, as: UTF8.self)
-    }
-
-    static func format(_ bps: Double) -> String {
-        let gb = Double(1 << 30)
-        let mb = Double(1 << 20)
-        let kb = Double(1 << 10)
-        if bps >= gb { return String(format: "%.1f GB/s", bps / gb) }
-        if bps >= mb { return String(format: "%.1f MB/s", bps / mb) }
-        if bps >= kb { return String(format: "%.0f KB/s", bps / kb) }
-        return String(format: "%.0f B/s", bps)
     }
 }

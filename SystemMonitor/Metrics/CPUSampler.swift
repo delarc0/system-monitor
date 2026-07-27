@@ -34,7 +34,6 @@ final class CPUSampler {
         let eSlice = Array(perCore.dropFirst(pCount).prefix(eCount))
         return CPUSample(
             overall: overall,
-            perCore: perCore,
             pCores: pSlice,
             eCores: eSlice,
             pCount: pCount,

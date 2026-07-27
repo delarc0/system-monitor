@@ -146,7 +146,7 @@ struct PanelView: View {
         // Idle disks are the norm; only spend the line on I/O when there is any.
         let busy = max(d.readBps, d.writeBps) > 512 * 1024
         guard busy else { return base }
-        return base + "  ·  R \(d.readString)  ·  W \(d.writeString)"
+        return base + "  ·  R \(formatByteRate(d.readBps))  ·  W \(formatByteRate(d.writeBps))"
     }
 }
 
