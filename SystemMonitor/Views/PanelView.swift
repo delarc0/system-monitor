@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PanelView: View {
     @EnvironmentObject private var metrics: MetricsService
+    @EnvironmentObject private var prefs: AppPreferences
     @Environment(\.openSettings) private var openSettings
     @State private var processTab: ProcessListView.Tab = .cpu
 
@@ -10,11 +11,15 @@ struct PanelView: View {
             header
 
             if let s = metrics.snapshot {
+                if !s.alerts.isEmpty {
+                    AlertBanner(alerts: s.alerts)
+                }
+
                 gauges(for: s)
 
                 Divider()
 
-                NetworkChartView(sample: s.network)
+                NetworkChartView(sample: s.network, scale: prefs.networkScale)
 
                 Divider()
 
@@ -37,7 +42,7 @@ struct PanelView: View {
             footer
         }
         .padding(16)
-        .frame(width: 340)
+        .frame(width: 380)
     }
 
     private var header: some View {
@@ -55,28 +60,48 @@ struct PanelView: View {
     private func gauges(for s: Snapshot) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             GaugeRow(
-                icon: "cpu",
-                label: "CPU",
+                icon: MetricKind.cpu.icon,
+                label: MetricKind.cpu.title,
                 value: s.cpu.overall,
                 valueText: String(format: "%.0f%%", s.cpu.overall),
-                subline: coreSubline(for: s.cpu)
+                history: s.history.cpu,
+                historyCapacity: s.history.capacity,
+                subline: coreSubline(for: s.cpu),
+                isAlerting: s.alert(for: .cpu) != nil
             )
 
             if let gpu = s.gpu.utilization {
                 GaugeRow(
-                    icon: "display",
-                    label: "GPU",
+                    icon: MetricKind.gpu.icon,
+                    label: MetricKind.gpu.title,
                     value: gpu,
-                    valueText: String(format: "%.0f%%", gpu)
+                    valueText: String(format: "%.0f%%", gpu),
+                    history: s.history.gpu,
+                    historyCapacity: s.history.capacity,
+                    isAlerting: s.alert(for: .gpu) != nil
                 )
             }
 
             GaugeRow(
-                icon: "memorychip",
-                label: "Memory",
+                icon: MetricKind.memory.icon,
+                label: MetricKind.memory.title,
                 value: s.memory.percent,
                 valueText: String(format: "%.0f%%", s.memory.percent),
-                subline: memorySubline(for: s.memory)
+                history: s.history.memory,
+                historyCapacity: s.history.capacity,
+                subline: memorySubline(for: s.memory),
+                isAlerting: s.alert(for: .memory) != nil
+            )
+
+            GaugeRow(
+                icon: MetricKind.disk.icon,
+                label: MetricKind.disk.title,
+                value: s.disk.percent,
+                valueText: String(format: "%.0f%%", s.disk.percent),
+                history: s.history.disk,
+                historyCapacity: s.history.capacity,
+                subline: diskSubline(for: s.disk),
+                isAlerting: s.alert(for: .disk) != nil
             )
         }
     }
@@ -115,9 +140,48 @@ struct PanelView: View {
         }
         return base
     }
+
+    private func diskSubline(for d: DiskSample) -> String {
+        let base = String(format: "%.0f GB free of %.0f", d.freeGB, d.totalGB)
+        // Idle disks are the norm; only spend the line on I/O when there is any.
+        let busy = max(d.readBps, d.writeBps) > 512 * 1024
+        guard busy else { return base }
+        return base + "  ·  R \(d.readString)  ·  W \(d.writeString)"
+    }
+}
+
+/// Sustained breaches, called out above the gauges. The gauge rows also turn
+/// red, but a metric that's been pinned for half a minute deserves a sentence
+/// rather than only a colour.
+struct AlertBanner: View {
+    let alerts: [MetricAlert]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(alerts) { alert in
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.red)
+                    Text("\(alert.metric.title) over \(Int(alert.threshold))% for \(durationText(alert.sustainedSeconds))")
+                        .font(.caption)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                }
+            }
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.red.opacity(0.10), in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func durationText(_ seconds: Int) -> String {
+        seconds >= 120 ? "\(seconds / 60) min" : "\(seconds)s"
+    }
 }
 
 #Preview {
     PanelView()
         .environmentObject(MetricsService.shared)
+        .environmentObject(AppPreferences.shared)
 }

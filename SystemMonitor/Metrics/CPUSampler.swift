@@ -26,6 +26,10 @@ final class CPUSampler {
     func sample() -> CPUSample {
         let overall = sampleOverall()
         let perCore = samplePerCore()
+        // Apple doesn't formally document P/E ordering in host_processor_info,
+        // but on Apple Silicon P-cores have always been returned first and every
+        // mainstream tool (Stats, htop, asitop) relies on this. Revisit if Apple
+        // ever changes the layout; pCores/eCores would silently swap.
         let pSlice = Array(perCore.prefix(pCount))
         let eSlice = Array(perCore.dropFirst(pCount).prefix(eCount))
         return CPUSample(

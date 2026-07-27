@@ -14,13 +14,26 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
-    DEVELOPMENT_TEAM: ""
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "2"
+    DEVELOPMENT_TEAM: 4D2U237VRC
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "Bark Dev"
-    ENABLE_HARDENED_RUNTIME: YES
     ENABLE_USER_SCRIPT_SANDBOXING: NO
+    # Xcode 15+'s split debug dylib gets a different Team ID than the main
+    # binary when signed with a self-signed cert. Disabled so Debug can launch.
+    ENABLE_DEBUG_DYLIB: NO
+  configs:
+    Debug:
+      # Hardened runtime + self-signed "Bark Dev" + third-party frameworks
+      # (Sparkle) = Team ID mismatch at load time. Off for Debug, on for Release.
+      ENABLE_HARDENED_RUNTIME: NO
+    Release:
+      ENABLE_HARDENED_RUNTIME: YES
+      # The Developer ID cert exists in the login keychain; Sparkle refuses to
+      # apply an update that isn't codesigned by a trusted identity, so Release
+      # must not fall back to the self-signed "Bark Dev".
+      CODE_SIGN_IDENTITY: "Developer ID Application"
 
 targets:
   SystemMonitor:
@@ -30,15 +43,6 @@ targets:
       - SystemMonitor
     dependencies:
       - package: Sparkle
-    postBuildScripts:
-      - name: Deep re-sign with Bark Dev (stabilize TCC grants across rebuilds)
-        script: |
-          if [ "${CONFIGURATION}" = "Debug" ]; then
-            /usr/bin/codesign --force --deep --sign "Bark Dev" \
-              "${BUILT_PRODUCTS_DIR}/${WRAPPER_NAME}" || true
-          fi
-        runOnlyWhenInstalling: false
-        basedOnDependencyAnalysis: false
     info:
       path: SystemMonitor/Info.plist
       properties:
@@ -52,7 +56,16 @@ targets:
         SUEnableInstallerLauncherService: NO
         SUFeedURL: https://delarc0.github.io/system-monitor/appcast.xml
         SUPublicEDKey: "REPLACE_WITH_SPARKLE_PUBLIC_KEY"
+        # The feed isn't hosted and the key above is a placeholder, so an
+        # automatic check would prompt the user and then fetch a 404 on every
+        # launch. Flip to YES with the first real signed release.
+        SUEnableAutomaticChecks: NO
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: se.lab37.systemmonitor.mac
         CODE_SIGN_ENTITLEMENTS: SystemMonitor/SystemMonitor.entitlements
+        # Ships as "System Monitor.app" so Finder, the Dock and Spotlight all
+        # agree with CFBundleDisplayName. The target and scheme stay
+        # "SystemMonitor", so build commands are unchanged.
+        PRODUCT_NAME: System Monitor
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

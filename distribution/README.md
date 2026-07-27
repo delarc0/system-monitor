@@ -1,13 +1,26 @@
-# System Monitor — distribution
+# System Monitor: distribution
 
 Release pipeline scaffolding for Sparkle auto-update. Mirrors Bark-mac's setup.
 
-## State (2026-04-20)
+## State (2026-07-27)
 
-- Sparkle package wired in `project.yml`; `SUFeedURL` + `SUPublicEDKey` placeholders in Info.plist.
-- `appcast.xml` is a template — not yet hosted.
-- **Public key is a placeholder.** Mint a real keypair before the first signed release (see below).
-- Apple Developer ID is **pending** (shared status with Bark-mac). Until it's approved, we cannot ship real updates — Sparkle refuses to apply updates that aren't both EdDSA-signed and codesigned by a trusted identity.
+- Sparkle package wired in `project.yml`, which is also where `SUFeedURL`,
+  `SUPublicEDKey` and `SUEnableAutomaticChecks` are set. `SystemMonitor/Info.plist`
+  is generated from it by XcodeGen, so edit `project.yml`, never the plist.
+- **Developer ID is available.** `Developer ID Application: LAB37 MEDIA AB (4D2U237VRC)`
+  is in the login keychain, and Release is configured to sign with it
+  (`CODE_SIGN_IDENTITY: "Developer ID Application"`, `DEVELOPMENT_TEAM: 4D2U237VRC`).
+  The old "pending Apple approval" note was stale.
+- **Public key is still a placeholder.** Mint a real keypair before the first
+  signed release (see below). Until then `SUEnableAutomaticChecks` is `NO`, so the
+  app doesn't prompt to auto-update or fetch a feed that isn't hosted yet.
+- `appcast.xml` is a template, not yet hosted.
+
+### Remaining before a first release
+
+1. Mint the Sparkle keypair and paste the public key into `project.yml`.
+2. Host `appcast.xml` (GitHub Pages, see Hosting) and flip `SUEnableAutomaticChecks` to `YES`.
+3. Create the `AC_NOTARY` keychain profile: `xcrun notarytool store-credentials`.
 
 ## First-time key setup
 
@@ -20,14 +33,20 @@ Release pipeline scaffolding for Sparkle auto-update. Mirrors Bark-mac's setup.
 # Store the exported PEM in 1Password. Re-import on a new machine with -f <file>.
 ```
 
-## Release recipe (when Dev ID is approved)
+## Release recipe
 
-Run from `apps/system-monitor`:
+Run from `apps/system-monitor`. Note the built bundle is `System Monitor.app`
+(with a space) while the target and scheme remain `SystemMonitor`.
 
 ```bash
-# 1. Bump version
-sed -i '' 's/MARKETING_VERSION: "0.1.0"/MARKETING_VERSION: "0.2.0"/' project.yml
-xcodegen
+OLD=0.2.0
+NEW=0.3.0
+
+# 1. Bump version. Fail loudly rather than shipping the old version number
+#    because a silent no-op sed didn't match.
+grep -q "MARKETING_VERSION: \"$OLD\"" project.yml || { echo "MARKETING_VERSION $OLD not found"; exit 1; }
+sed -i '' "s/MARKETING_VERSION: \"$OLD\"/MARKETING_VERSION: \"$NEW\"/" project.yml
+xcodegen generate
 
 # 2. Archive + export with Developer ID
 xcodebuild -project SystemMonitor.xcodeproj -scheme SystemMonitor -configuration Release \
@@ -36,15 +55,27 @@ xcodebuild -exportArchive -archivePath build/SystemMonitor.xcarchive \
   -exportPath build/export -exportOptionsPlist distribution/ExportOptions.plist
 
 # 3. Notarize + staple
-xcrun notarytool submit build/export/SystemMonitor.app --keychain-profile "AC_NOTARY" --wait
-xcrun stapler staple build/export/SystemMonitor.app
+xcrun notarytool submit "build/export/System Monitor.app" --keychain-profile "AC_NOTARY" --wait
+xcrun stapler staple "build/export/System Monitor.app"
 
-# 4. Zip + EdDSA-sign for Sparkle
-ditto -c -k --sequesterRsrc --keepParent build/export/SystemMonitor.app build/SystemMonitor-0.2.0.zip
-./build/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update build/SystemMonitor-0.2.0.zip
+# 4. Zip into a release directory, then let Sparkle build the appcast from it.
+#    generate_appcast signs each archive AND writes the matching length +
+#    sparkle:edSignature into the <item>. Doing it by hand with sign_update
+#    means one mistyped attribute silently breaks every client's update check.
+SPARKLE_BIN=$(find build/SourcePackages/artifacts -type d -name bin -path '*[Ss]parkle*' | head -1)
+mkdir -p build/releases
+ditto -c -k --sequesterRsrc --keepParent \
+  "build/export/System Monitor.app" "build/releases/SystemMonitor-$NEW.zip"
+"$SPARKLE_BIN/generate_appcast" build/releases
 
-# 5. Update appcast.xml with the new <item>, push to GH Pages, upload zip to GH Release
+# 5. Copy the generated appcast over distribution/appcast.xml, push it to GH
+#    Pages, and upload the zip to a GH Release.
+cp build/releases/appcast.xml distribution/appcast.xml
 ```
+
+`generate_appcast` reads the private key from the login keychain (the one minted
+above) and reuses signatures for archives it has already seen, so re-running it
+over `build/releases` is safe.
 
 ## Hosting
 
