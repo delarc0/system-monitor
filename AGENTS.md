@@ -47,10 +47,18 @@ distributing the app to other machines.
    The menu bar shows a coloured CPU percentage. There is no Dock icon and no
    main window: it is an `LSUIElement` app.
 
-3. **Tell the human what they got.** Click the menu bar reading for the panel.
-   The gear in the panel opens Settings. If they want it to survive a reboot they
-   must turn on **Launch at login** in Settings, which you cannot do for them
-   because it is a `SMAppService` registration owned by the app.
+3. **Claude usage row (optional).** If the human uses Claude Code on a Pro or
+   Max plan, install the statusline mirror from the README's "Claude usage"
+   section: create `~/.claude/statusline.sh`, `chmod 700` it, and add the
+   `statusLine` entry to `~/.claude/settings.json` without disturbing the other
+   keys. Claude Code reloads settings on save; the row appears after its next
+   turn. Skip this on an API-key setup, the JSON carries no `rate_limits` there.
+
+4. **Tell the human what they got.** Click the menu bar reading for the panel.
+   On a MacBook with a notch, hovering the notch drops the island. The gear in
+   the panel opens Settings. If they want it to survive a reboot they must turn
+   on **Launch at login** in Settings, which you cannot do for them because it
+   is a `SMAppService` registration owned by the app.
 
 ## Which build you get
 

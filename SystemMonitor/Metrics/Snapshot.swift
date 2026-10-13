@@ -6,6 +6,7 @@ struct CPUSample: Sendable, Equatable {
     var eCores: [Double]
     var pCount: Int
     var eCount: Int
+    var thermal: ProcessInfo.ThermalState
 }
 
 struct MemorySample: Sendable, Equatable {
@@ -37,6 +38,22 @@ struct DiskSample: Sendable, Equatable {
     var writeBps: Double
 }
 
+struct ClaudeSample: Sendable, Equatable {
+    var fiveHourPercent: Double    // 0..100, plan rate limit window
+    var sevenDayPercent: Double    // 0..100
+    var fiveHourResetsAt: Date?
+    var sevenDayResetsAt: Date?
+    var sessionCostUSD: Double?    // the session that last wrote the file
+    var updatedAt: Date            // only moves while a Claude Code session runs
+}
+
+struct BatterySample: Sendable, Equatable {
+    var percent: Double            // 0..100
+    var isCharging: Bool
+    var externalPower: Bool
+    var watts: Double              // signed: positive charges, negative drains
+}
+
 struct ProcessEntry: Sendable, Identifiable, Equatable {
     let id: String
     var name: String               // resolved app name, not the executable
@@ -48,9 +65,9 @@ struct ProcessEntry: Sendable, Identifiable, Equatable {
 
 /// The metrics a threshold can watch. Network and disk *throughput* are
 /// deliberately absent: a burst of traffic isn't a problem, a sustained
-/// saturated resource is.
+/// saturated resource is. Claude is the 5-hour plan window.
 enum MetricKind: String, Sendable, CaseIterable, Identifiable, Codable {
-    case cpu, gpu, memory, disk
+    case cpu, gpu, memory, disk, claude
 
     var id: String { rawValue }
 
@@ -60,6 +77,7 @@ enum MetricKind: String, Sendable, CaseIterable, Identifiable, Codable {
         case .gpu: return "GPU"
         case .memory: return "Memory"
         case .disk: return "Disk"
+        case .claude: return "Claude"
         }
     }
 
@@ -69,6 +87,7 @@ enum MetricKind: String, Sendable, CaseIterable, Identifiable, Codable {
         case .gpu: return "display"
         case .memory: return "memorychip"
         case .disk: return "internaldrive"
+        case .claude: return "sparkles"
         }
     }
 }
@@ -104,6 +123,8 @@ struct Snapshot: Sendable, Equatable {
     var gpu: GPUSample
     var disk: DiskSample
     var network: NetworkSample
+    var claude: ClaudeSample?      // nil until the statusline has written once
+    var battery: BatterySample?    // nil on a desktop
     var topCPU: [ProcessEntry]
     var topMemory: [ProcessEntry]
     var history: MetricHistory

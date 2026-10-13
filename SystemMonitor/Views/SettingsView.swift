@@ -48,6 +48,13 @@ struct GeneralSettingsView: View {
                 }
             }
 
+            // Only the built-in display has a notch; the controller hides the
+            // island on its own when there is none.
+            Toggle("Show island over the notch", isOn: Binding(
+                get: { prefs.showIsland },
+                set: { prefs.showIsland = $0 }
+            ))
+
             Toggle("Launch at login", isOn: Binding(
                 get: { launchAtLogin },
                 set: { newValue in

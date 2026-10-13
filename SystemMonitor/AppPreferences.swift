@@ -58,6 +58,7 @@ final class AppPreferences: ObservableObject {
         static let updateInterval = "updateInterval"
         static let networkScale = "networkScale"
         static let alertSettings = "alertSettings"
+        static let showIsland = "showIsland"
     }
 
     @Published var menuBarDisplay: MenuBarDisplay {
@@ -70,6 +71,10 @@ final class AppPreferences: ObservableObject {
 
     @Published var networkScale: NetworkScale {
         didSet { UserDefaults.standard.set(networkScale.rawValue, forKey: Key.networkScale) }
+    }
+
+    @Published var showIsland: Bool {
+        didSet { UserDefaults.standard.set(showIsland, forKey: Key.showIsland) }
     }
 
     @Published var alerts: AlertSettings {
@@ -89,6 +94,8 @@ final class AppPreferences: ObservableObject {
 
         let rawScale = UserDefaults.standard.string(forKey: Key.networkScale) ?? NetworkScale.shared.rawValue
         self.networkScale = NetworkScale(rawValue: rawScale) ?? .shared
+
+        self.showIsland = UserDefaults.standard.object(forKey: Key.showIsland) as? Bool ?? true
 
         if let data = UserDefaults.standard.data(forKey: Key.alertSettings),
            let decoded = try? JSONDecoder().decode(AlertSettings.self, from: data) {

@@ -15,6 +15,8 @@ struct GaugeRow: View {
     var historyCapacity: Int = 60
     var subline: String? = nil
     var isAlerting: Bool = false
+    /// Load for the colour when it is not `value`: a battery is bad when low.
+    var colorValue: Double? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -33,7 +35,7 @@ struct GaugeRow: View {
                     values: history,
                     capacity: historyCapacity,
                     current: value,
-                    color: loadColor(value)
+                    color: loadColor(colorValue ?? value)
                 )
                 .frame(height: 18)
 

@@ -11,6 +11,7 @@ struct AlertSettings: Codable, Equatable, Sendable {
     var gpu: Double = 90
     var memory: Double = 90
     var disk: Double = 90
+    var claude: Double = 90
 
     init() {}
 
@@ -26,6 +27,7 @@ struct AlertSettings: Codable, Equatable, Sendable {
         gpu = try c.decodeIfPresent(Double.self, forKey: .gpu) ?? gpu
         memory = try c.decodeIfPresent(Double.self, forKey: .memory) ?? memory
         disk = try c.decodeIfPresent(Double.self, forKey: .disk) ?? disk
+        claude = try c.decodeIfPresent(Double.self, forKey: .claude) ?? claude
     }
 
     func threshold(for metric: MetricKind) -> Double {
@@ -34,6 +36,7 @@ struct AlertSettings: Codable, Equatable, Sendable {
         case .gpu: return gpu
         case .memory: return memory
         case .disk: return disk
+        case .claude: return claude
         }
     }
 
@@ -43,6 +46,7 @@ struct AlertSettings: Codable, Equatable, Sendable {
         case .gpu: gpu = value
         case .memory: memory = value
         case .disk: disk = value
+        case .claude: claude = value
         }
     }
 }

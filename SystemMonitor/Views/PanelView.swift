@@ -103,6 +103,28 @@ struct PanelView: View {
                 subline: diskSubline(for: s.disk),
                 isAlerting: s.alert(for: .disk) != nil
             )
+
+            if let c = s.claude {
+                GaugeRow(
+                    icon: MetricKind.claude.icon,
+                    label: MetricKind.claude.title,
+                    value: c.fiveHourPercent,
+                    valueText: String(format: "%.0f%%", c.fiveHourPercent),
+                    subline: claudeSubline(for: c),
+                    isAlerting: s.alert(for: .claude) != nil
+                )
+            }
+
+            if let b = s.battery {
+                GaugeRow(
+                    icon: b.externalPower ? "battery.100percent.bolt" : "battery.75percent",
+                    label: "Battery",
+                    value: b.percent,
+                    valueText: String(format: "%.0f%%", b.percent),
+                    subline: batterySubline(for: b),
+                    colorValue: 100 - b.percent
+                )
+            }
         }
     }
 
@@ -127,10 +149,39 @@ struct PanelView: View {
     }
 
     private func coreSubline(for cpu: CPUSample) -> String? {
-        guard cpu.eCount > 0 else { return nil }
-        let pAvg = cpu.pCores.isEmpty ? 0 : cpu.pCores.reduce(0, +) / Double(cpu.pCores.count)
-        let eAvg = cpu.eCores.isEmpty ? 0 : cpu.eCores.reduce(0, +) / Double(cpu.eCores.count)
-        return String(format: "P %.0f%%  ·  E %.0f%%", pAvg, eAvg)
+        var parts: [String] = []
+        if cpu.eCount > 0 {
+            let pAvg = cpu.pCores.isEmpty ? 0 : cpu.pCores.reduce(0, +) / Double(cpu.pCores.count)
+            let eAvg = cpu.eCores.isEmpty ? 0 : cpu.eCores.reduce(0, +) / Double(cpu.eCores.count)
+            parts.append(String(format: "P %.0f%%  ·  E %.0f%%", pAvg, eAvg))
+        }
+        // Nominal is the norm; only spend words on it when the fans have a reason.
+        switch cpu.thermal {
+        case .fair: parts.append("Thermal fair")
+        case .serious: parts.append("Thermal serious")
+        case .critical: parts.append("Thermal critical")
+        default: break
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: "  ·  ")
+    }
+
+    private func claudeSubline(for c: ClaudeSample) -> String {
+        var parts = [String(format: "7d %.0f%%", c.sevenDayPercent)]
+        if let reset = c.fiveHourResetsAt, reset > Date() {
+            parts.append("5h resets " + reset.formatted(date: .omitted, time: .shortened))
+        }
+        if let cost = c.sessionCostUSD {
+            parts.append(String(format: "$%.2f session", cost))
+        }
+        // The file only moves while a Claude Code session runs; say so when it hasn't.
+        let age = Date().timeIntervalSince(c.updatedAt)
+        if age > 600 { parts.append("updated \(Int(age / 60)) min ago") }
+        return parts.joined(separator: "  ·  ")
+    }
+
+    private func batterySubline(for b: BatterySample) -> String {
+        let state = b.isCharging ? "Charging" : b.externalPower ? "On power" : "On battery"
+        return state + String(format: "  ·  %.1f W %@", abs(b.watts), b.watts >= 0 ? "in" : "draw")
     }
 
     private func memorySubline(for m: MemorySample) -> String {

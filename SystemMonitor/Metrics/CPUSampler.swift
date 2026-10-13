@@ -37,7 +37,8 @@ final class CPUSampler {
             pCores: pSlice,
             eCores: eSlice,
             pCount: pCount,
-            eCount: eCount
+            eCount: eCount,
+            thermal: ProcessInfo.processInfo.thermalState
         )
     }
 

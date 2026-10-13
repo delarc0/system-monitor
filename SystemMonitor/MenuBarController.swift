@@ -13,6 +13,7 @@ final class MenuBarController: NSObject {
     private let prefs = AppPreferences.shared
     private let metrics = MetricsService.shared
     private var cancellables = Set<AnyCancellable>()
+    private var island: NotchController?
 
     override init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -34,6 +35,7 @@ final class MenuBarController: NSObject {
         metrics.updateInterval = TimeInterval(prefs.updateInterval)
         metrics.alertSettings = prefs.alerts
         metrics.start()
+        island = NotchController { [weak self] in self?.togglePopover() }
 
         prefs.$alerts
             .receive(on: DispatchQueue.main)

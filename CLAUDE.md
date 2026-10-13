@@ -20,6 +20,18 @@ away. Public repo: `github.com/delarc0/system-monitor`.
   `SystemMonitor.xcodeproj/` and `SystemMonitor/Info.plist` are generated and
   gitignored. Never edit either; edit `project.yml` and run `xcodegen generate`.
 
+## Tests
+
+```bash
+xcodebuild -project SystemMonitor.xcodeproj -scheme SystemMonitor \
+  -derivedDataPath build test CODE_SIGN_IDENTITY="-" CODE_SIGN_STYLE=Automatic
+```
+
+`SystemMonitorTests` hosts in the app. XcodeGen derives the host path from the
+target name, so `TEST_HOST` and `PRODUCT_MODULE_NAME` are set by hand in
+`project.yml` (the product name has a space). The `linkd.autoShortcut` noise in
+the test log is the host being a menu bar app, not a failure.
+
 ## Build / run
 
 ```bash
@@ -46,8 +58,18 @@ intro.
 ## Architecture
 
 `MetricsService` (main actor) runs one sampling loop, builds a `Snapshot` per
-tick and publishes it. `MenuBarController` owns the `NSStatusItem` and the
-`NSPopover`. Views are pure functions of `Snapshot`.
+tick and publishes it. `MenuBarController` owns the `NSStatusItem`, the
+`NSPopover` and the `NotchController`. Views are pure functions of `Snapshot`.
+
+`NotchController` is a borderless, non-activating `NSPanel` at `.statusBar`
+level, sized to the gap between `NSScreen.auxiliaryTopLeftArea` and
+`auxiliaryTopRightArea`. macOS has no island API; ActivityKit is iOS-only.
+It hides itself without a notched screen (closed lid, external only).
+
+`ClaudeSampler` reads `~/.claude/usage-latest.json`, which the user's Claude
+Code statusline script writes on every turn (README, "Claude usage"). That
+JSON is the only documented source of the 5-hour and 7-day plan windows; the
+OAuth usage endpoint community tools hit is undocumented, do not use it.
 
 `MenuBarController` exists because SwiftUI's `MenuBarExtra` flattens per-segment
 colours to the menu bar's template tint. The title is built as an
@@ -107,6 +129,16 @@ These were all real bugs. Do not reintroduce them.
   processes, which would drop every root daemon from the list.
 - **`ps` stderr must be `FileHandle.nullDevice`.** Nothing drains it, and a
   `Pipe` deadlocks the child once its buffer fills.
+- **Never restart the sampling loop to apply a setting.** It reads
+  `updateInterval` at every sleep. Restarting sampled again milliseconds
+  after the last tick and pushed a fake 0% into every history.
+- **The first tick publishes nothing.** CPU is a delta with no baseline yet;
+  `buildSnapshot` returns nil rather than a 0% that the history would keep.
+- **`AlertSettings` decodes field by field.** Synthesized `Codable` fails on
+  any missing key, and `try?` then reset every saved threshold the first time
+  a field was added.
+- **Only the expanded island observes `metrics`.** `IslandView` is a clear
+  hover target until it expands; `IslandReadout` is the only subscriber.
 
 ## Conventions
 

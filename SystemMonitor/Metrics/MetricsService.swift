@@ -23,6 +23,8 @@ final class MetricsService: ObservableObject {
     private let gpu = GPUSampler()
     private let disk = DiskSampler()
     private let network = NetworkSampler()
+    private let claude = ClaudeSampler()
+    private let battery = BatterySampler()
     private let process = ProcessSampler()
     private let alerts = AlertMonitor()
     private let notifier = AlertNotifier()
@@ -71,16 +73,17 @@ final class MetricsService: ObservableObject {
         let g = gpu.sample()
         let d = disk.sample()
         let n = network.sample(interval: updateInterval)
+        let cl = claude.sample()
+        let b = battery.sample()
 
         append(c.overall, to: \.cpu)
         append(g.utilization ?? 0, to: \.gpu)
         append(m.percent, to: \.memory)
         append(d.percent, to: \.disk)
 
-        let raised = alerts.evaluate(
-            values: [.cpu: c.overall, .gpu: g.utilization ?? 0, .memory: m.percent, .disk: d.percent],
-            settings: alertSettings
-        )
+        var values: [MetricKind: Double] = [.cpu: c.overall, .gpu: g.utilization ?? 0, .memory: m.percent, .disk: d.percent]
+        values[.claude] = cl?.fiveHourPercent
+        let raised = alerts.evaluate(values: values, settings: alertSettings)
         if alertSettings.notify {
             for alert in alerts.newlyTriggered {
                 notifier.post(alert)
@@ -101,6 +104,8 @@ final class MetricsService: ObservableObject {
             gpu: g,
             disk: d,
             network: n,
+            claude: cl,
+            battery: b,
             topCPU: tops.topCPU,
             topMemory: tops.topMemory,
             history: history,

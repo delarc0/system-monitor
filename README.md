@@ -12,8 +12,11 @@ Native Swift/SwiftUI menu bar app. Live CPU, GPU, memory, and network stats, col
 - **Network graph**: Swift Charts area chart, download (blue) above the axis and upload (orange) mirrored below. 64-bit interface counters, so a 4 GiB wrap can't spike the graph. Scale is either shared (comparable) or per-direction (detailed)
 - **Top processes**: segmented Top CPU / Top Memory, with each process resolved to its owning app bundle (icon, real name) and aggregated by it, so Chrome's 38 helpers read as one "Google Chrome" row with the real total. Click for Activity Monitor, right-click to reveal
 - **Sustained-load alerts**: per-metric thresholds that only fire once a metric has stayed over the line for a chosen window, with hysteresis so a value sitting on the threshold doesn't flap. Optional notification, off by default
-- **P/E core split**: average load per core cluster shown under the CPU bar on Apple Silicon
-- **Preferences**: update interval (1/2/5 s), menu bar display mode, network graph scale, alert thresholds, launch at login
+- **P/E core split**: average load per core cluster shown under the CPU bar on Apple Silicon, with the thermal state when it is not nominal
+- **Battery**: level and signed net wattage (charging in, or draw) from `AppleSmartBattery`; hidden on desktops
+- **Claude usage**: the 5-hour and 7-day plan windows of Claude Code, with reset times and the last session's cost, from the JSON Claude Code hands its statusline script (see Claude usage below). Alertable like any other metric
+- **Island**: on a MacBook with a notch, hovering the notch drops a black tab with CPU and memory traces, network rates and the Claude bars. Invisible at rest, costs nothing per tick while collapsed. Click it for the panel; off in Settings
+- **Preferences**: update interval (1/2/5 s), menu bar display mode, network graph scale, alert thresholds, island, launch at login
 - **Idle-cheap**: the panel's SwiftUI hierarchy is built on open and torn down on close, and the process sampler only runs while the panel is visible. Sitting in the menu bar costs ~0% CPU
 - **Zero permissions**: no sudo, no accessibility, no microphone. Pure IOKit + Mach APIs.
 
@@ -47,6 +50,7 @@ The `SystemMonitor.xcodeproj` is regenerated from `project.yml`, so don't commit
 SystemMonitor/
   SystemMonitorApp.swift       @main, AppDelegate + Settings scene
   MenuBarController.swift      NSStatusItem + NSPopover, attributed menu bar title
+  NotchController.swift        Borderless NSPanel over the notch, hover to expand
   AppPreferences.swift         UserDefaults-backed preferences + SMAppService
   UpdaterController.swift      Sparkle wrapper
   Metrics/
@@ -57,6 +61,8 @@ SystemMonitor/
     GPUSampler.swift           IOKit / AGXAccelerator
     DiskSampler.swift          Volume capacity + IOBlockStorageDriver bytes
     NetworkSampler.swift       sysctl(NET_RT_IFLIST2) → if_data64
+    BatterySampler.swift       IOKit / AppleSmartBattery
+    ClaudeSampler.swift        ~/.claude/usage-latest.json, written by the statusline
     ProcessSampler.swift       actor; /bin/ps → resolved to app bundles
     AlertMonitor.swift         Sustained-breach detection + hysteresis
     AlertNotifier.swift        Opt-in UserNotifications wrapper
@@ -65,11 +71,42 @@ SystemMonitor/
     LoadColor.swift            Green→red HSL interpolation helper
     PanelView.swift            Root panel composition + alert banner
     GaugeRow.swift             Icon + label + fixed-scale sparkline + %
+    IslandView.swift           The notch readout
     NetworkChartView.swift     Mirrored download/upload chart
     ProcessListView.swift      Segmented Top CPU / Top Memory
     SettingsView.swift         General + Alerts + About tabs
   Assets.xcassets/             AppIcon
+SystemMonitorTests/
+  LogicTests.swift             Alert state machine, chart scale ceiling, settings decode
 ```
+
+Run the tests with `xcodebuild -scheme SystemMonitor test CODE_SIGN_IDENTITY="-" CODE_SIGN_STYLE=Automatic`.
+
+## Claude usage
+
+macOS has no API for Claude's plan limits. Claude Code pipes a documented JSON
+object to its statusline script on every turn, and that object carries
+`rate_limits.five_hour` and `rate_limits.seven_day` (Pro and Max plans only).
+A five-line script mirrors that JSON to `~/.claude/usage-latest.json`; the app
+reads the file each tick. Nothing is sent anywhere.
+
+```bash
+# ~/.claude/statusline.sh
+input=$(cat)
+dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+printf '%s' "$input" > "$dir/usage-latest.json.$$" && mv -f "$dir/usage-latest.json.$$" "$dir/usage-latest.json"
+printf '%s' "$input" | jq -r '"\(.model.display_name) · 5h \(.rate_limits.five_hour.used_percentage // "-")%"'
+```
+
+and in `~/.claude/settings.json`:
+
+```json
+{ "statusLine": { "type": "command", "command": "~/.claude/statusline.sh" } }
+```
+
+The row stays hidden until a Claude Code session has run once, and the file only
+moves while a session is active; the panel says "updated N min ago" past ten
+minutes.
 
 `MenuBarController` owns the status item because SwiftUI's `MenuBarExtra`
 flattens per-segment colors to the menu bar's template tint; the title is built
