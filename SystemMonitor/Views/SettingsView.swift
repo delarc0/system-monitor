@@ -29,8 +29,7 @@ struct GeneralSettingsView: View {
                 }
             }
 
-            // Writing the preference is enough; MenuBarController observes it
-            // and restarts the sampling loop.
+            // Writing the preference is enough; MenuBarController observes it.
             Picker("Update every:", selection: Binding(
                 get: { UpdateInterval(rawValue: prefs.updateInterval) ?? .normal },
                 set: { prefs.updateInterval = $0.rawValue }
@@ -64,8 +63,6 @@ struct GeneralSettingsView: View {
 struct AlertSettingsView: View {
     @ObservedObject private var prefs = AppPreferences.shared
     @State private var notificationDenied = false
-
-    private let notifier = AlertNotifier()
 
     var body: some View {
         Form {
@@ -103,7 +100,7 @@ struct AlertSettingsView: View {
                         // opts in, so the app's default stays zero-permission.
                         guard enable else { return }
                         Task {
-                            let granted = await notifier.requestAuthorization()
+                            let granted = await AlertNotifier.requestAuthorization()
                             notificationDenied = !granted
                             if !granted { prefs.alerts.notify = false }
                         }

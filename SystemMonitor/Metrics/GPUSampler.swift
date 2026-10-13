@@ -17,26 +17,24 @@ struct GPUSampler {
         while case let service = IOIteratorNext(iterator), service != 0 {
             defer { IOObjectRelease(service) }
 
-            var props: Unmanaged<CFMutableDictionary>?
-            guard IORegistryEntryCreateCFProperties(service, &props, kCFAllocatorDefault, 0) == KERN_SUCCESS,
-                  let dict = props?.takeRetainedValue() as? [String: Any] else {
-                continue
-            }
-
+            // One key, not the whole property dictionary: this runs every tick.
             // M-series chips report via PerformanceStatistics.
-            if let perf = dict["PerformanceStatistics"] as? [String: Any],
+            if let perf = property(service, "PerformanceStatistics") as? [String: Any],
                let util = perf["Device Utilization %"] as? Int {
                 return GPUSample(utilization: Double(util))
             }
             // Older / alternate keys.
-            if let util = dict["gpu-core-utilization-%"] as? Int {
-                return GPUSample(utilization: Double(util))
-            }
-            if let util = dict["gpu-utilization-%"] as? Int {
-                return GPUSample(utilization: Double(util))
+            for key in ["gpu-core-utilization-%", "gpu-utilization-%"] {
+                if let util = property(service, key) as? Int {
+                    return GPUSample(utilization: Double(util))
+                }
             }
         }
 
         return GPUSample(utilization: nil)
+    }
+
+    private func property(_ service: io_registry_entry_t, _ key: String) -> Any? {
+        IORegistryEntryCreateCFProperty(service, key as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
     }
 }

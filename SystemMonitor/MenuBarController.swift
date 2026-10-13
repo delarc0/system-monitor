@@ -51,15 +51,13 @@ final class MenuBarController: NSObject {
             .store(in: &cancellables)
 
         // Owning this here keeps Settings a pure preferences editor instead of
-        // reaching into the sampling loop.
+        // reaching into the sampling loop. The loop reads the interval at every
+        // sleep, so no restart: restarting took a second sample milliseconds
+        // after the last and pushed a fake 0% into every graph.
         prefs.$updateInterval
             .dropFirst()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] seconds in
-                guard let self else { return }
-                self.metrics.updateInterval = TimeInterval(seconds)
-                self.metrics.restart()
-            }
+            .sink { [weak self] seconds in self?.metrics.updateInterval = TimeInterval(seconds) }
             .store(in: &cancellables)
 
         updateLabel()

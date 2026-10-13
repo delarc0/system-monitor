@@ -122,45 +122,19 @@ struct NetworkChartView: View {
 
     private var downloadScale: Double {
         switch scale {
-        case .shared: return Self.niceCeiling(max(peak(sample.downloadHistory), peak(sample.uploadHistory)))
-        case .perDirection: return Self.niceCeiling(peak(sample.downloadHistory))
+        case .shared: return niceByteCeiling(max(peak(sample.downloadHistory), peak(sample.uploadHistory)))
+        case .perDirection: return niceByteCeiling(peak(sample.downloadHistory))
         }
     }
 
     private var uploadScale: Double {
         switch scale {
         case .shared: return downloadScale
-        case .perDirection: return Self.niceCeiling(peak(sample.uploadHistory))
+        case .perDirection: return niceByteCeiling(peak(sample.uploadHistory))
         }
     }
 
     private func peak(_ series: [Double]) -> Double { series.max() ?? 0 }
-
-    /// Round the window's peak up to a 1/2/5 × 10ⁿ figure inside its B/KB/MB/GB
-    /// unit, so the labelled scale is a number worth reading, with a floor so
-    /// an idle link doesn't magnify its own noise into a mountain range.
-    ///
-    /// Must never return less than `peak`, or the chart silently clips the very
-    /// spike it exists to show.
-    private static func niceCeiling(_ peak: Double) -> Double {
-        let floorValue = 64.0 * 1024
-        guard peak > floorValue else { return floorValue }
-
-        // `unit` is the largest power of 1024 not exceeding peak, so `mantissa`
-        // lands in [1, 1024) and needs its own decimal rounding on top.
-        let unit = pow(1024, floor(log2(peak) / 10))
-        let mantissa = peak / unit
-        let magnitude = pow(10, floor(log10(mantissa)))
-        let normalized = mantissa / magnitude
-        let step: Double
-        switch normalized {
-        case ..<1: step = 1
-        case ..<2: step = 2
-        case ..<5: step = 5
-        default: step = 10
-        }
-        return step * magnitude * unit
-    }
 
     /// Values are normalised to 0…1 against their own axis scale so the two
     /// halves can carry different magnitudes in `.perDirection`.

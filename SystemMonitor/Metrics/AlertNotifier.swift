@@ -9,18 +9,15 @@ import UserNotifications
 /// notification centre must never take the sampling loop down with it.
 @MainActor
 final class AlertNotifier {
-    private var authorized = false
-
     /// Called from Settings when the toggle flips on.
-    func requestAuthorization() async -> Bool {
-        guard let center = center else { return false }
+    static func requestAuthorization() async -> Bool {
+        guard let center = AlertNotifier().center else { return false }
         do {
-            authorized = try await center.requestAuthorization(options: [.alert, .sound])
+            return try await center.requestAuthorization(options: [.alert, .sound])
         } catch {
             NSLog("Notification authorization failed: \(error)")
-            authorized = false
+            return false
         }
-        return authorized
     }
 
     func post(_ alert: MetricAlert) {

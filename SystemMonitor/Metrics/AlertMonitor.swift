@@ -12,6 +12,22 @@ struct AlertSettings: Codable, Equatable, Sendable {
     var memory: Double = 90
     var disk: Double = 90
 
+    init() {}
+
+    /// Field by field with defaults, so a settings blob saved by an older
+    /// build still decodes after a new field is added.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? enabled
+        watched = try c.decodeIfPresent(Set<MetricKind>.self, forKey: .watched) ?? watched
+        sustainedSeconds = try c.decodeIfPresent(Int.self, forKey: .sustainedSeconds) ?? sustainedSeconds
+        notify = try c.decodeIfPresent(Bool.self, forKey: .notify) ?? notify
+        cpu = try c.decodeIfPresent(Double.self, forKey: .cpu) ?? cpu
+        gpu = try c.decodeIfPresent(Double.self, forKey: .gpu) ?? gpu
+        memory = try c.decodeIfPresent(Double.self, forKey: .memory) ?? memory
+        disk = try c.decodeIfPresent(Double.self, forKey: .disk) ?? disk
+    }
+
     func threshold(for metric: MetricKind) -> Double {
         switch metric {
         case .cpu: return cpu
@@ -43,8 +59,7 @@ final class AlertMonitor {
     private static let clearMargin: Double = 5
 
     /// Longest plausible gap between two ticks at the slowest update interval.
-    /// A larger one means the app was suspended (the machine slept, or the
-    /// sampling loop restarted), and that wall-clock time must not be counted
+    /// A larger one means the app was suspended (the machine slept), and that wall-clock time must not be counted
     /// as sustained load, or a Mac that sleeps while busy alerts the instant it
     /// wakes for a breach that was never continuously observed.
     private static let maxGapSeconds: TimeInterval = 15

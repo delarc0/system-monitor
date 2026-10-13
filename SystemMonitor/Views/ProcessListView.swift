@@ -151,6 +151,7 @@ private enum AppIconCache {
     static func icon(for bundlePath: String) -> NSImage {
         if let hit = cache[bundlePath] { return hit }
         let image = NSWorkspace.shared.icon(forFile: bundlePath)
+        if cache.count >= 128 { cache.removeAll() }
         cache[bundlePath] = image
         return image
     }

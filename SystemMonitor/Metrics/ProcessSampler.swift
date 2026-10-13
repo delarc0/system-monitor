@@ -93,6 +93,9 @@ actor ProcessSampler {
     private func resolve(_ executablePath: String) -> ResolvedApp {
         if let cached = resolvedCache[executablePath] { return cached }
         let resolved = uncachedResolve(executablePath)
+        // Build and temp binaries have unique paths; dropping the cache every
+        // few hundred entries is cheaper than remembering them forever.
+        if resolvedCache.count >= 512 { resolvedCache.removeAll() }
         resolvedCache[executablePath] = resolved
         return resolved
     }

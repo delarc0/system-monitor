@@ -38,20 +38,10 @@ final class MetricsService: ObservableObject {
         loop = Task { [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
-                self.snapshot = await self.buildSnapshot()
+                if let snapshot = await self.buildSnapshot() { self.snapshot = snapshot }
                 try? await Task.sleep(for: .seconds(self.updateInterval))
             }
         }
-    }
-
-    func stop() {
-        loop?.cancel()
-        loop = nil
-    }
-
-    func restart() {
-        stop()
-        start()
     }
 
     /// Fill in the process rows immediately when the panel opens, instead of
@@ -71,10 +61,12 @@ final class MetricsService: ObservableObject {
         snapshot = current
     }
 
-    private func buildSnapshot() async -> Snapshot {
+    /// Nil on the first tick: CPU is a delta and has no baseline yet, and a
+    /// fake 0% would land in the history as if it were a real reading.
+    private func buildSnapshot() async -> Snapshot? {
         // Mach/sysctl reads are microseconds; the `ps` shell-out is not, so it
         // lives on the ProcessSampler actor rather than the main actor.
-        let c = cpu.sample()
+        guard let c = cpu.sample() else { return nil }
         let m = memory.sample()
         let g = gpu.sample()
         let d = disk.sample()

@@ -68,4 +68,23 @@ targets:
         # agree with CFBundleDisplayName. The target and scheme stay
         # "SystemMonitor", so build commands are unchanged.
         PRODUCT_NAME: System Monitor
+        # The space would otherwise become "System_Monitor" as the module name.
+        PRODUCT_MODULE_NAME: SystemMonitor
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    scheme:
+      testTargets:
+        - SystemMonitorTests
+
+  SystemMonitorTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - SystemMonitorTests
+    dependencies:
+      - target: SystemMonitor
+    settings:
+      base:
+        # XcodeGen derives the host from the target name, which lacks the space.
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/System Monitor.app/Contents/MacOS/System Monitor"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        GENERATE_INFOPLIST_FILE: YES

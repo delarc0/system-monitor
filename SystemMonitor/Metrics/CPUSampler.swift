@@ -23,9 +23,9 @@ final class CPUSampler {
         }
     }
 
-    func sample() -> CPUSample {
-        let overall = sampleOverall()
+    func sample() -> CPUSample? {
         let perCore = samplePerCore()
+        guard let overall = sampleOverall() else { return nil }
         // Apple doesn't formally document P/E ordering in host_processor_info,
         // but on Apple Silicon P-cores have always been returned first and every
         // mainstream tool (Stats, htop, asitop) relies on this. Revisit if Apple
@@ -41,7 +41,7 @@ final class CPUSampler {
         )
     }
 
-    private func sampleOverall() -> Double {
+    private func sampleOverall() -> Double? {
         var info = host_cpu_load_info()
         var count = mach_msg_type_number_t(
             MemoryLayout<host_cpu_load_info_data_t>.stride / MemoryLayout<integer_t>.stride
@@ -54,7 +54,7 @@ final class CPUSampler {
         guard kr == KERN_SUCCESS else { return 0 }
 
         defer { previousTotal = info }
-        guard let prev = previousTotal else { return 0 }
+        guard let prev = previousTotal else { return nil }
 
         let user = Double(info.cpu_ticks.0 &- prev.cpu_ticks.0)
         let system = Double(info.cpu_ticks.1 &- prev.cpu_ticks.1)

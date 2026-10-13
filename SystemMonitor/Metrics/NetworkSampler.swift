@@ -14,7 +14,7 @@ final class NetworkSampler {
     private let historyLength = 60
 
     /// Longest plausible gap between two ticks. Anything larger means the app
-    /// was suspended (sleep/wake, or a settings-driven restart), so the byte
+    /// was suspended (sleep/wake), so the byte
     /// delta spans an unknown stretch of time and would render as a fake spike.
     private let maxGapSeconds: TimeInterval = 15
 
