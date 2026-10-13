@@ -4,7 +4,10 @@ import Foundation
 struct MemorySampler {
     func sample() -> MemorySample {
         let total = Sysctl.uint64("hw.memsize") ?? 0
-        let pageSize = UInt64(vm_kernel_page_size)
+        // host_page_size, not the vm_kernel_page_size global: Swift 6 rejects mutable C globals.
+        var kernelPageSize: vm_size_t = 0
+        host_page_size(mach_host_self(), &kernelPageSize)
+        let pageSize = UInt64(kernelPageSize)
 
         var vmInfo = vm_statistics64()
         var count = mach_msg_type_number_t(

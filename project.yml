@@ -3,17 +3,17 @@ options:
   bundleIdPrefix: se.lab37.systemmonitor
   deploymentTarget:
     macOS: "14.0"
-  xcodeVersion: "15.0"
+  xcodeVersion: "27.0"
   createIntermediateGroups: true
 
 packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
-    from: "2.6.0"
+    exactVersion: "2.10.0"
 
 settings:
   base:
-    SWIFT_VERSION: "5.9"
+    SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "0.2.0"
     CURRENT_PROJECT_VERSION: "2"
     DEVELOPMENT_TEAM: 4D2U237VRC

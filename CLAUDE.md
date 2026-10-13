@@ -13,9 +13,9 @@ away. Public repo: `github.com/delarc0/system-monitor`.
 
 ## Stack
 
-- Swift 5.9, SwiftUI + AppKit, `LSUIElement=YES` menu bar app
+- Swift 6 language mode (Xcode 27), SwiftUI + AppKit, `LSUIElement=YES` menu bar app
 - Swift Charts for the network graph. Everything else is hand-drawn `Path`.
-- Sparkle 2.6 via SPM, wired but not finished (see Distribution)
+- Sparkle 2.10 via SPM, wired but not finished (see Distribution)
 - XcodeGen: `project.yml` is the source of truth. Both
   `SystemMonitor.xcodeproj/` and `SystemMonitor/Info.plist` are generated and
   gitignored. Never edit either; edit `project.yml` and run `xcodegen generate`.
