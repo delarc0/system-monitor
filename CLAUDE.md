@@ -139,6 +139,12 @@ These were all real bugs. Do not reintroduce them.
   a field was added.
 - **Only the expanded island observes `metrics`.** `IslandView` is a clear
   hover target until it expands; `IslandReadout` is the only subscriber.
+- **No `GeometryReader` inside the island, and `sizingOptions = []` on its
+  hosting view.** With either, AppKit threw from `NSHostingView.updateConstraints`
+  while the panel animated its frame: an intermittent `_crashOnException`
+  within a handful of hover cycles, Release and Debug alike. Resize the panel
+  with `animator()`, never `setFrame(animate:)`, which runs a nested event loop
+  and left the frame stuck part way.
 
 ## Conventions
 

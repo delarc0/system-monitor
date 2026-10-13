@@ -34,11 +34,16 @@ final class NotchController: NSObject {
         // The notch is a property of this machine's built-in display, so its
         // size is read once; `layout` only decides whether it is on screen.
         let notch = Self.notchRect()?.size ?? CGSize(width: 220, height: 38)
-        panel.contentView = NSHostingView(rootView: IslandView(
+        let hosting = NSHostingView(rootView: IslandView(
             notchSize: notch,
             onHover: { [weak self] in self?.setExpanded($0) ?? false },
             onTap: onTap
         ).environmentObject(MetricsService.shared))
+        // The panel owns its frame. With sizing options the hosting view also
+        // constrains the window from the content's ideal size, and the two
+        // disagree mid-animation.
+        hosting.sizingOptions = []
+        panel.contentView = hosting
 
         cancellable = prefs.$showIsland
             .receive(on: DispatchQueue.main)

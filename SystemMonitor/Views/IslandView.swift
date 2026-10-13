@@ -99,13 +99,14 @@ private struct IslandReadout: View {
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .frame(width: 16, alignment: .leading)
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.12))
-                    Capsule()
-                        .fill(loadColor(percent))
-                        .frame(width: max(4, geo.size.width * min(percent, 100) / 100))
-                }
+            // Fixed width, no GeometryReader: a GeometryReader inside this
+            // hosting view while the panel animates its frame made AppKit
+            // throw from NSHostingView.updateConstraints.
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.12))
+                Capsule()
+                    .fill(loadColor(percent))
+                    .frame(width: max(4, 84 * min(percent, 100) / 100))
             }
             .frame(width: 84, height: 6)
             Text(String(format: "%.0f%%", percent))
