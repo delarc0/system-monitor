@@ -1,106 +1,78 @@
 import Foundation
 import IOKit
 
-/// Disk sampler: capacity from the filesystem, throughput from IOKit's
-/// per-driver byte counters.
+/// Disk sampler: capacity from the filesystem, throughput from IOKit's per-driver
+/// byte counters.
 ///
-/// Capacity uses `volumeAvailableCapacityForImportantUsage`, which is what
-/// Finder and Storage Settings report; plain `volumeAvailableCapacity` ignores
-/// purgeable space and reads several hundred GB lower than the number the user
-/// sees everywhere else.
+/// Capacity uses `volumeAvailableCapacityForImportantUsage`, which is what Finder
+/// and Storage Settings report; plain `volumeAvailableCapacity` ignores purgeable
+/// space and reads several hundred GB lower than the number the user sees elsewhere.
 final class DiskSampler {
-    private let maxGapSeconds: TimeInterval = 15
+    /// The important-usage lookup takes about 8 ms and up to 24 ms, against 0.1 ms for
+    /// the other reads, and it runs on the main actor. Free space barely moves in a minute.
+    private static let capacityMaxAge: TimeInterval = 60
 
-    private var previousRead: UInt64 = 0
-    private var previousWrite: UInt64 = 0
-    private var previousTime: Date?
+    private var capacity: (total: Double, free: Double) = (0, 0)
+    private var capacityReadAt: Date?
+    private var readRate = RateCounter()
+    private var writeRate = RateCounter()
 
     func sample() -> DiskSample {
-        let capacity = readCapacity()
-        guard let (read, write) = readCounters() else {
-            return makeSample(capacity: capacity, read: 0, write: 0)
-        }
         let now = Date()
-
-        defer {
-            previousRead = read
-            previousWrite = write
-            previousTime = now
+        if capacityReadAt.map({ now.timeIntervalSince($0) >= Self.capacityMaxAge }) ?? true,
+           let fresh = readCapacity() {
+            capacity = fresh
+            capacityReadAt = now
         }
 
-        guard let prev = previousTime else {
-            return makeSample(capacity: capacity, read: 0, write: 0)
-        }
-        let dt = now.timeIntervalSince(prev)
-        guard dt > 0, dt <= maxGapSeconds else {
-            return makeSample(capacity: capacity, read: 0, write: 0)
-        }
-
-        // Drives can be attached and detached mid-run, which drops their
-        // counters out of the sum. Clamp instead of underflowing.
-        let deltaRead = read > previousRead ? read - previousRead : 0
-        let deltaWrite = write > previousWrite ? write - previousWrite : 0
-
-        return makeSample(
-            capacity: capacity,
-            read: Double(deltaRead) / dt,
-            write: Double(deltaWrite) / dt
-        )
-    }
-
-    private func makeSample(capacity: (total: Double, free: Double), read: Double, write: Double) -> DiskSample {
+        let counters = readCounters()
         let used = max(0, capacity.total - capacity.free)
         return DiskSample(
             totalGB: capacity.total,
-            usedGB: used,
             freeGB: capacity.free,
             percent: capacity.total > 0 ? used / capacity.total * 100 : 0,
-            readBps: read,
-            writeBps: write
+            readBps: readRate.rate(counters.read, now: now) ?? 0,
+            writeBps: writeRate.rate(counters.write, now: now) ?? 0
         )
     }
 
-    private func readCapacity() -> (total: Double, free: Double) {
-        let url = URL(fileURLWithPath: "/")
-        guard let values = try? url.resourceValues(forKeys: [
+    private func readCapacity() -> (total: Double, free: Double)? {
+        guard let values = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [
             .volumeTotalCapacityKey,
             .volumeAvailableCapacityForImportantUsageKey
-        ]) else {
-            return (0, 0)
-        }
+        ]) else { return nil }
         let gb = 1_073_741_824.0
-        let total = Double(values.volumeTotalCapacity ?? 0) / gb
-        let free = Double(values.volumeAvailableCapacityForImportantUsage ?? 0) / gb
-        return (total, free)
+        return (
+            Double(values.volumeTotalCapacity ?? 0) / gb,
+            Double(values.volumeAvailableCapacityForImportantUsage ?? 0) / gb
+        )
     }
 
-    /// Summed across every block storage driver, so an external or second
-    /// internal drive counts too.
-    private func readCounters() -> (UInt64, UInt64)? {
-        guard let match = IOServiceMatching("IOBlockStorageDriver") else { return nil }
+    /// Every block storage driver, so an external or second internal drive counts too.
+    private func readCounters() -> (read: [String: UInt64], write: [String: UInt64]) {
+        var read: [String: UInt64] = [:]
+        var write: [String: UInt64] = [:]
+        guard let match = IOServiceMatching("IOBlockStorageDriver") else { return (read, write) }
 
         var iterator: io_iterator_t = 0
         guard IOServiceGetMatchingServices(kIOMainPortDefault, match, &iterator) == KERN_SUCCESS else {
-            return nil
+            return (read, write)
         }
         defer { IOObjectRelease(iterator) }
-
-        var read: UInt64 = 0
-        var write: UInt64 = 0
 
         while case let service = IOIteratorNext(iterator), service != 0 {
             defer { IOObjectRelease(service) }
 
+            var entryID: UInt64 = 0
             // One key, not the whole property dictionary: this runs every tick.
-            guard let stats = IORegistryEntryCreateCFProperty(service, "Statistics" as CFString, kCFAllocatorDefault, 0)?
-                .takeRetainedValue() as? [String: Any] else {
-                continue
-            }
+            guard IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS,
+                  let stats = IORegistryEntryCreateCFProperty(service, "Statistics" as CFString, kCFAllocatorDefault, 0)?
+                    .takeRetainedValue() as? [String: Any] else { continue }
 
-            if let bytes = stats["Bytes (Read)"] as? Int64, bytes > 0 { read &+= UInt64(bytes) }
-            if let bytes = stats["Bytes (Write)"] as? Int64, bytes > 0 { write &+= UInt64(bytes) }
+            let key = String(entryID)
+            if let bytes = stats["Bytes (Read)"] as? Int64, bytes > 0 { read[key] = UInt64(bytes) }
+            if let bytes = stats["Bytes (Write)"] as? Int64, bytes > 0 { write[key] = UInt64(bytes) }
         }
-
         return (read, write)
     }
 }

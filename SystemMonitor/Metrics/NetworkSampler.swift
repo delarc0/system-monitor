@@ -10,78 +10,25 @@ import Foundation
 /// pinned the chart's Y scale for the rest of the window and flattened every
 /// real reading to zero. `if_data64` doesn't wrap.
 final class NetworkSampler {
-    /// Samples retained for the graph. At the default 2 s tick that's 2 minutes.
-    private let historyLength = 60
+    private var downloadRate = RateCounter()
+    private var uploadRate = RateCounter()
+    private var downloadHistory: [Double] = []
+    private var uploadHistory: [Double] = []
 
-    /// Longest plausible gap between two ticks. Anything larger means the app
-    /// was suspended (sleep/wake), so the byte
-    /// delta spans an unknown stretch of time and would render as a fake spike.
-    private let maxGapSeconds: TimeInterval = 15
-
-    private var previousIn: UInt64 = 0
-    private var previousOut: UInt64 = 0
-    private var previousTime: Date?
-    private var downloadHistory: [Double]
-    private var uploadHistory: [Double]
-
-    /// Histories start empty and grow to `historyLength`. Pre-filling with
-    /// zeros drew a fake flat line across the graph for the first minutes after
-    /// launch; the view right-anchors a partial series against `capacity`.
-    init() {
-        downloadHistory = []
-        uploadHistory = []
-    }
-
-    func sample(interval: TimeInterval) -> NetworkSample {
-        guard let (bytesIn, bytesOut) = readCounters() else {
-            return makeSample(down: 0, up: 0, interval: interval)
-        }
+    func sample() -> NetworkSample {
         let now = Date()
-
-        defer {
-            previousIn = bytesIn
-            previousOut = bytesOut
-            previousTime = now
+        let counters = readCounters()
+        let down = downloadRate.rate(counters.in, now: now)
+        let up = uploadRate.rate(counters.out, now: now)
+        if let down, let up {
+            downloadHistory.pushToHistory(down)
+            uploadHistory.pushToHistory(up)
         }
-
-        // First tick has no baseline; a long gap means the byte delta spans an
-        // unknown stretch of time and isn't a rate.
-        guard let prev = previousTime else {
-            return makeSample(down: 0, up: 0, interval: interval)
-        }
-        let dt = now.timeIntervalSince(prev)
-        guard dt > 0, dt <= maxGapSeconds else {
-            return push(down: 0, up: 0, interval: interval)
-        }
-
-        // Interfaces can be removed and re-added (VPN, dock, Wi-Fi toggle),
-        // which restarts their counters. Clamp instead of underflowing.
-        let deltaIn = bytesIn > previousIn ? bytesIn - previousIn : 0
-        let deltaOut = bytesOut > previousOut ? bytesOut - previousOut : 0
-
-        return push(down: Double(deltaIn) / dt, up: Double(deltaOut) / dt, interval: interval)
-    }
-
-    private func push(down: Double, up: Double, interval: TimeInterval) -> NetworkSample {
-        downloadHistory.append(down)
-        uploadHistory.append(up)
-        if downloadHistory.count > historyLength {
-            downloadHistory.removeFirst(downloadHistory.count - historyLength)
-        }
-        if uploadHistory.count > historyLength {
-            uploadHistory.removeFirst(uploadHistory.count - historyLength)
-        }
-        return makeSample(down: down, up: up, interval: interval)
-    }
-
-    private func makeSample(down: Double, up: Double, interval: TimeInterval) -> NetworkSample {
-        NetworkSample(
-            downloadBps: down,
-            uploadBps: up,
+        return NetworkSample(
+            downloadBps: down ?? 0,
+            uploadBps: up ?? 0,
             downloadHistory: downloadHistory,
-            uploadHistory: uploadHistory,
-            windowSeconds: Int(Double(historyLength) * interval),
-            capacity: historyLength
+            uploadHistory: uploadHistory
         )
     }
 
@@ -93,22 +40,21 @@ final class NetworkSampler {
         "utun", "awdl", "llw", "anpi", "ap", "bridge", "gif", "stf", "feth", "vmenet"
     ]
 
-    private func readCounters() -> (UInt64, UInt64)? {
+    private func readCounters() -> (in: [String: UInt64], out: [String: UInt64]) {
+        var bytesIn: [String: UInt64] = [:]
+        var bytesOut: [String: UInt64] = [:]
         var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0]
 
         var len = 0
-        guard sysctl(&mib, u_int(mib.count), nil, &len, nil, 0) == 0, len > 0 else { return nil }
+        guard sysctl(&mib, u_int(mib.count), nil, &len, nil, 0) == 0, len > 0 else { return (bytesIn, bytesOut) }
 
         var buffer = [UInt8](repeating: 0, count: len)
         let ok = buffer.withUnsafeMutableBytes { raw -> Bool in
             sysctl(&mib, u_int(mib.count), raw.baseAddress, &len, nil, 0) == 0
         }
-        guard ok else { return nil }
+        guard ok else { return (bytesIn, bytesOut) }
 
-        var bytesIn: UInt64 = 0
-        var bytesOut: UInt64 = 0
         let byteCount = min(len, buffer.count)
-
         buffer.withUnsafeBytes { raw in
             var offset = 0
             // Messages are packed without padding, so loads must be unaligned.
@@ -132,11 +78,10 @@ final class NetworkSampler {
                 guard let name = interfaceName(raw, at: nameOffset, limit: byteCount),
                       !Self.skippedPrefixes.contains(where: { name.hasPrefix($0) }) else { continue }
 
-                bytesIn &+= info.ifm_data.ifi_ibytes
-                bytesOut &+= info.ifm_data.ifi_obytes
+                bytesIn[name] = info.ifm_data.ifi_ibytes
+                bytesOut[name] = info.ifm_data.ifi_obytes
             }
         }
-
         return (bytesIn, bytesOut)
     }
 

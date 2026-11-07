@@ -2,52 +2,54 @@ import Foundation
 
 /// Top-process sampler.
 ///
-/// Shells out to `/bin/ps` once per tick. `proc_pid_rusage` would avoid the
-/// subprocess, but it returns EPERM for processes owned by other users, which
-/// would silently drop every root daemon (WindowServer, kernel_task, the
-/// Spotlight workers), the exact rows you want when the machine is busy.
+/// Shells out to `/bin/ps`. `proc_pid_rusage` would avoid the subprocess, but it
+/// returns EPERM for processes owned by other users, which would silently drop
+/// every root daemon (WindowServer, kernel_task, the Spotlight workers), the exact
+/// rows you want when the machine is busy.
 ///
-/// Raw executable names are close to useless in a list: a browser or editor
-/// shows up as a dozen "… Helper (Renderer)" rows, and system work appears as
-/// bare daemon names. Every row is therefore resolved to its owning application
-/// bundle and aggregated by that name, so all of Code's helpers collapse into
-/// one "Visual Studio Code" row carrying the summed cost.
-/// An actor rather than a struct: it owns a mutable resolution cache and does
-/// blocking work (spawning `ps`), so it must stay off the main actor and be
-/// serialized against itself.
+/// Raw executable names are close to useless in a list: a browser or editor shows
+/// up as a dozen "… Helper (Renderer)" rows, and system work appears as bare daemon
+/// names. Every row is therefore resolved to its owning application bundle and
+/// aggregated by that name, so all of Code's helpers collapse into one
+/// "Visual Studio Code" row carrying the summed cost.
 actor ProcessSampler {
-    /// Resolution touches the filesystem (`Bundle(path:)`), so it's cached per
-    /// executable path: a few dozen entries that stay valid for the session.
+    /// Resolution touches the filesystem, so it's cached per executable path: a few
+    /// dozen entries that stay valid for the session.
     private var resolvedCache: [String: ResolvedApp] = [:]
 
-    struct ResolvedApp: Sendable {
+    private struct ResolvedApp {
         let name: String
         let bundlePath: String?
     }
 
-    func sampleTops(n: Int = 5) -> (topCPU: [ProcessEntry], topMemory: [ProcessEntry]) {
-        var aggregate: [String: (cpu: Double, rssKB: Double, app: ResolvedApp, path: String, count: Int)] = [:]
+    private struct Aggregate {
+        var cpu: Double
+        var rssKB: Double
+        let app: ResolvedApp
+        let path: String
+        var count: Int
+    }
 
-        for row in listProcesses() {
+    /// Nil when `ps` failed, so the panel keeps its last rows instead of going blank.
+    func sampleTops(count: Int = 5) async -> TopProcesses? {
+        // LC_ALL=C: under a Swedish locale `ps` prints 145,6, which no number parser accepts.
+        guard let data = await runProcess(
+            "/bin/ps", ["-Axo", "%cpu=,rss=,comm="], environment: ["LC_ALL": "C"], timeout: 5
+        ) else { return nil }
+
+        var aggregate: [String: Aggregate] = [:]
+        for row in Self.parseRows(String(decoding: data, as: UTF8.self)) {
             let app = resolve(row.executablePath)
-            if var existing = aggregate[app.name] {
-                existing.cpu += row.cpu
-                existing.rssKB += row.rssKB
-                existing.count += 1
-                aggregate[app.name] = existing
-            } else {
-                aggregate[app.name] = (row.cpu, row.rssKB, app, row.executablePath, 1)
-            }
+            aggregate[app.name, default: Aggregate(cpu: 0, rssKB: 0, app: app, path: row.executablePath, count: 0)].cpu += row.cpu
+            aggregate[app.name]?.rssKB += row.rssKB
+            aggregate[app.name]?.count += 1
         }
 
-        func entries(
-            by metric: (_ value: (cpu: Double, rssKB: Double, app: ResolvedApp, path: String, count: Int)) -> Double,
-            prefix: String
-        ) -> [ProcessEntry] {
+        func entries(by metric: (Aggregate) -> Double, prefix: String) -> [ProcessEntry] {
             aggregate
                 .filter { metric($0.value) > 0 }
                 .sorted { metric($0.value) > metric($1.value) }
-                .prefix(n)
+                .prefix(count)
                 .map { name, value in
                     ProcessEntry(
                         id: "\(prefix)-\(name)",
@@ -60,9 +62,9 @@ actor ProcessSampler {
                 }
         }
 
-        return (
-            topCPU: entries(by: { $0.cpu }, prefix: "cpu"),
-            topMemory: entries(by: { $0.rssKB / 1024 / 1024 }, prefix: "mem")
+        return TopProcesses(
+            cpu: entries(by: { $0.cpu }, prefix: "cpu"),
+            memory: entries(by: { $0.rssKB / 1024 / 1024 }, prefix: "mem")
         )
     }
 
@@ -102,16 +104,16 @@ actor ProcessSampler {
 
     private func uncachedResolve(_ executablePath: String) -> ResolvedApp {
         if let bundlePath = outermostBundlePath(in: executablePath) {
-            let directoryName = (bundlePath as NSString).lastPathComponent
-            let name = bundleDisplayName(at: bundlePath) ?? Self.strippingAppSuffix(directoryName)
+            // The name Finder, the Dock and Spotlight show. Info.plist can't be used:
+            // VS Code sets both name keys to "Code" while every surface says
+            // "Visual Studio Code".
+            let shown = FileManager.default.displayName(atPath: bundlePath)
+            let name = shown.hasSuffix(".app") ? String(shown.dropLast(4)) : shown
             return ResolvedApp(name: name, bundlePath: bundlePath)
         }
 
         let executable = (executablePath as NSString).lastPathComponent
-        if let known = Self.systemNames[executable] {
-            return ResolvedApp(name: known, bundlePath: nil)
-        }
-        return ResolvedApp(name: executable, bundlePath: nil)
+        return ResolvedApp(name: Self.systemNames[executable] ?? executable, bundlePath: nil)
     }
 
     /// The *outermost* `.app` is what a person means by "the app": VS Code's
@@ -124,73 +126,26 @@ actor ProcessSampler {
         return components[...index].joined(separator: "/")
     }
 
-    /// `FileManager.displayName` is the name Finder, the Dock and Spotlight all
-    /// show, which is the name a person actually knows the app by. The Info.plist
-    /// keys are only a fallback: VS Code, for one, sets both `CFBundleDisplayName`
-    /// and `CFBundleName` to "Code" while every surface calls it
-    /// "Visual Studio Code".
-    /// Only the trailing extension: a bundle legitimately named
-    /// "MyApp.appcast.app" must not come out as "Mycast".
-    private static func strippingAppSuffix(_ name: String) -> String {
-        name.hasSuffix(".app") ? String(name.dropLast(4)) : name
-    }
-
-    private func bundleDisplayName(at path: String) -> String? {
-        let displayName = FileManager.default.displayName(atPath: path)
-        if !displayName.isEmpty, displayName != "/" {
-            return Self.strippingAppSuffix(displayName)
-        }
-
-        guard let bundle = Bundle(path: path) else { return nil }
-        for key in ["CFBundleDisplayName", "CFBundleName"] {
-            if let name = bundle.localizedInfoDictionary?[key] as? String, !name.isEmpty { return name }
-            if let name = bundle.infoDictionary?[key] as? String, !name.isEmpty { return name }
-        }
-        return nil
-    }
-
     // MARK: - ps
 
-    private struct ProcessRow {
+    struct ProcessRow {
         let executablePath: String
         let cpu: Double
         let rssKB: Double
     }
 
-    private func listProcesses() -> [ProcessRow] {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/ps")
-        // %cpu + rss first so the remainder of the line (which can contain
-        // spaces, e.g. "…/Code Helper (Renderer)") is the full command path.
-        task.arguments = ["-Axo", "%cpu=,rss=,comm="]
-        let stdout = Pipe()
-        task.standardOutput = stdout
-        // /dev/null, not a Pipe: nothing ever drains stderr, so a Pipe there
-        // would deadlock the child the moment it filled that buffer.
-        task.standardError = FileHandle.nullDevice
-
-        do {
-            try task.run()
-        } catch {
-            return []
-        }
-        // Drain stdout BEFORE waitUntilExit to avoid a pipe-buffer deadlock
-        // when the child fills the pipe (ps with full comm paths easily does).
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        task.waitUntilExit()
-        guard let output = String(data: data, encoding: .utf8) else { return [] }
-
+    /// `%cpu` and `rss` come first so the remainder of the line, which can contain
+    /// spaces ("…/Code Helper (Renderer)"), is the full command path.
+    static func parseRows(_ output: String) -> [ProcessRow] {
         var rows: [ProcessRow] = []
         for line in output.split(separator: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard let cpuEnd = trimmed.firstIndex(of: " ") else { continue }
-            let cpuStr = trimmed[..<cpuEnd]
             let afterCPU = trimmed[cpuEnd...].drop(while: { $0 == " " })
             guard let rssEnd = afterCPU.firstIndex(of: " ") else { continue }
-            let rssStr = afterCPU[..<rssEnd]
             let path = String(afterCPU[rssEnd...].drop(while: { $0 == " " }))
 
-            guard let cpu = Double(cpuStr), let rss = Double(rssStr), !path.isEmpty else { continue }
+            guard let cpu = Double(trimmed[..<cpuEnd]), let rss = Double(afterCPU[..<rssEnd]), !path.isEmpty else { continue }
             // The `ps` we just spawned is always in its own output.
             if path == "/bin/ps" { continue }
             rows.append(ProcessRow(executablePath: path, cpu: cpu, rssKB: rss))

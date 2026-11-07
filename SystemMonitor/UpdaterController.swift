@@ -1,16 +1,23 @@
 import Foundation
 import Sparkle
 
-/// Wraps Sparkle's updater so views can invoke "Check for Updates".
+/// Wraps Sparkle's updater.
 @MainActor
-final class UpdaterController: ObservableObject {
+final class UpdaterController {
     static let shared = UpdaterController()
+
+    /// False until the first real release sets the EdDSA key. Starting Sparkle with
+    /// the placeholder is a configuration error it reports to the user on launch.
+    static var isConfigured: Bool {
+        guard let key = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String else { return false }
+        return !key.isEmpty && !key.hasPrefix("REPLACE_")
+    }
 
     private let controller: SPUStandardUpdaterController
 
     private init() {
         controller = SPUStandardUpdaterController(
-            startingUpdater: true,
+            startingUpdater: Self.isConfigured,
             updaterDelegate: nil,
             userDriverDelegate: nil
         )
@@ -19,6 +26,4 @@ final class UpdaterController: ObservableObject {
     func checkForUpdates() {
         controller.checkForUpdates(nil)
     }
-
-    var canCheck: Bool { controller.updater.canCheckForUpdates }
 }

@@ -2,8 +2,8 @@
 
 Instructions for a coding agent (Claude Code, etc.) asked to install System
 Monitor on this Mac. Follow them top to bottom. System Monitor is a native macOS
-menu bar app showing live CPU, GPU, memory, disk and network usage. Everything
-runs on-device: no account, no network, no permissions to grant.
+menu bar app showing live CPU, GPU, memory, disk and network usage, plus the weekly
+Claude Code allowance. No account and no permissions to grant.
 
 ## TL;DR
 
@@ -17,8 +17,7 @@ for the human to approve afterwards, so you can complete this unattended.
 
 ## Requirements (install.sh checks all of these and stops with a clear message)
 
-- macOS 14 (Sonoma) or later. Apple Silicon or Intel; Intel loses only the
-  P/E core split line.
+- macOS 14 (Sonoma) or later. Apple Silicon or Intel.
 - Full **Xcode**, not just Command Line Tools. If missing, the human installs it
   from the App Store and then runs
   `sudo xcode-select -s /Applications/Xcode.app`. You cannot install Xcode
@@ -47,16 +46,10 @@ distributing the app to other machines.
    The menu bar shows a coloured CPU percentage. There is no Dock icon and no
    main window: it is an `LSUIElement` app.
 
-3. **Claude usage row (optional).** If the human uses Claude Code on a Pro or
-   Max plan, install the statusline mirror from the README's "Claude usage"
-   section: create `~/.claude/statusline.sh`, `chmod 700` it, and add the
-   `statusLine` entry to `~/.claude/settings.json` without disturbing the other
-   keys. Claude Code reloads settings on save; the row appears after its next
-   turn. Skip this on an API-key setup, the JSON carries no `rate_limits` there.
-
-4. **Tell the human what they got.** Click the menu bar reading for the panel.
-   On a MacBook with a notch, hovering the notch drops the island. The gear in
-   the panel opens Settings. If they want it to survive a reboot they must turn
+3. **Tell the human what they got.** Click the menu bar reading for the panel.
+   The gear in the panel opens Settings. The Claude row needs no setup: it fills
+   in within a minute if Claude Code is installed and logged in, and is hidden if
+   it isn't installed. If they want it to survive a reboot they must turn
    on **Launch at login** in Settings, which you cannot do for them because it
    is a `SMAppService` registration owned by the app.
 
@@ -95,8 +88,7 @@ rm -rf "/Applications/System Monitor.app"
 defaults delete se.lab37.systemmonitor.mac 2>/dev/null || true
 ```
 
-The `defaults delete` clears saved preferences (update interval, menu bar mode,
-alert thresholds). Skip it if the human is reinstalling and wants them kept.
+The `defaults delete` clears the saved menu bar mode. Skip it if the human is reinstalling and wants them kept.
 
 ## Troubleshooting
 

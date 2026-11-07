@@ -1,136 +1,112 @@
 import Foundation
 
-struct CPUSample: Sendable, Equatable {
-    var overall: Double           // 0..100
-    var pCores: [Double]
-    var eCores: [Double]
-    var pCount: Int
-    var eCount: Int
+struct CPUSample {
+    var overall: Double            // 0..100
     var thermal: ProcessInfo.ThermalState
 }
 
-struct MemorySample: Sendable, Equatable {
+/// The kernel's own verdict on memory, which is what actually predicts trouble:
+/// a Mac is routinely near 90% used with nothing wrong.
+enum MemoryPressure {
+    case normal, warning, critical
+
+    /// `kern.memorystatus_vm_pressure_level`: 1 normal, 2 warning, 4 critical.
+    init(level: Int) {
+        switch level {
+        case 2: self = .warning
+        case 4: self = .critical
+        default: self = .normal
+        }
+    }
+
+    /// Where this state sits on the 0..100 load colour scale.
+    var load: Double {
+        switch self {
+        case .normal: return 0
+        case .warning: return 60
+        case .critical: return 100
+        }
+    }
+}
+
+struct MemorySample {
     var totalGB: Double
     var usedGB: Double
     var percent: Double            // 0..100
     var swapUsedGB: Double
+    var pressure: MemoryPressure
 }
 
-struct GPUSample: Sendable, Equatable {
+struct GPUSample {
     var utilization: Double?       // 0..100, nil if unavailable
 }
 
-struct NetworkSample: Sendable, Equatable {
+struct NetworkSample {
     var downloadBps: Double
     var uploadBps: Double
     var downloadHistory: [Double]
     var uploadHistory: [Double]
-    var windowSeconds: Int         // wall-clock span the history covers
-    var capacity: Int              // slots the window holds once warmed up
 }
 
-struct DiskSample: Sendable, Equatable {
+struct DiskSample {
     var totalGB: Double
-    var usedGB: Double
     var freeGB: Double
     var percent: Double            // capacity used, 0..100
     var readBps: Double
     var writeBps: Double
+
+    /// Under 10% free is when a Mac starts to struggle and renders start to fail.
+    var isLow: Bool { totalGB > 0 && percent >= 90 }
 }
 
-struct ClaudeSample: Sendable, Equatable {
-    var fiveHourPercent: Double    // 0..100, plan rate limit window
-    var sevenDayPercent: Double    // 0..100
-    var fiveHourResetsAt: Date?
-    var sevenDayResetsAt: Date?
-    var sessionCostUSD: Double?    // the session that last wrote the file
-    var updatedAt: Date            // only moves while a Claude Code session runs
+struct ClaudeUsage: Sendable {
+    var percent: Double            // weekly allowance used, 0..100
+    var resets: String?            // as Claude Code words it, no year or zone
+    var weekElapsed: Double?       // 0..1, nil if the reset text can't be read
+    var readAt: Date
 }
 
-struct BatterySample: Sendable, Equatable {
-    var percent: Double            // 0..100
-    var isCharging: Bool
-    var externalPower: Bool
-    var watts: Double              // signed: positive charges, negative drains
-}
-
-struct ProcessEntry: Sendable, Identifiable, Equatable {
+struct ProcessEntry: Sendable, Identifiable {
     let id: String
     var name: String               // resolved app name, not the executable
-    var value: Double              // cpu% for topCPU, GB for topMemory
+    var value: Double              // cpu% for the CPU list, GB for the memory list
     var bundlePath: String?        // .app bundle, when the row is a real app
     var executablePath: String     // for the tooltip: what actually ran
     var instances: Int             // processes merged into this row
 }
 
-/// The metrics a threshold can watch. Network and disk *throughput* are
-/// deliberately absent: a burst of traffic isn't a problem, a sustained
-/// saturated resource is. Claude is the 5-hour plan window.
-enum MetricKind: String, Sendable, CaseIterable, Identifiable, Codable {
-    case cpu, gpu, memory, disk, claude
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .cpu: return "CPU"
-        case .gpu: return "GPU"
-        case .memory: return "Memory"
-        case .disk: return "Disk"
-        case .claude: return "Claude"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .cpu: return "cpu"
-        case .gpu: return "display"
-        case .memory: return "memorychip"
-        case .disk: return "internaldrive"
-        case .claude: return "sparkles"
-        }
-    }
+struct TopProcesses: Sendable {
+    var cpu: [ProcessEntry] = []
+    var memory: [ProcessEntry] = []
 }
 
-struct MetricAlert: Sendable, Equatable, Identifiable {
-    let metric: MetricKind
-    var value: Double
-    var threshold: Double
-    var sustainedSeconds: Int
-
-    var id: String { metric.rawValue }
-}
-
-/// Rolling per-metric history, so the gauges can show where a value has been
-/// rather than only where it is.
+/// Rolling history behind the sparklines.
 ///
 /// The series start empty and grow to `capacity` rather than being pre-filled
 /// with zeros: a zero is a real reading, and padding with them drew a fake flat
 /// line across the graph for the first minutes after launch. Views scale x
 /// against `capacity` and right-anchor, so a partial series fills in from the
 /// right the way every other system graph does.
-struct MetricHistory: Sendable, Equatable {
-    var capacity: Int = 60
+struct MetricHistory {
+    static let capacity = 60
+
     var cpu: [Double] = []
     var gpu: [Double] = []
     var memory: [Double] = []
-    var disk: [Double] = []
 }
 
-struct Snapshot: Sendable, Equatable {
+extension Array where Element == Double {
+    mutating func pushToHistory(_ value: Double) {
+        append(value)
+        if count > MetricHistory.capacity { removeFirst(count - MetricHistory.capacity) }
+    }
+}
+
+struct Snapshot {
     var cpu: CPUSample
     var memory: MemorySample
     var gpu: GPUSample
     var disk: DiskSample
     var network: NetworkSample
-    var claude: ClaudeSample?      // nil until the statusline has written once
-    var battery: BatterySample?    // nil on a desktop
-    var topCPU: [ProcessEntry]
-    var topMemory: [ProcessEntry]
     var history: MetricHistory
-    var alerts: [MetricAlert]
-
-    func alert(for metric: MetricKind) -> MetricAlert? {
-        alerts.first { $0.metric == metric }
-    }
 }

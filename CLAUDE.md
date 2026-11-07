@@ -2,7 +2,7 @@
 
 Native macOS menu bar system monitor. Swift/SwiftUI + AppKit. Live CPU, GPU,
 memory, disk and network, colour-coded in the menu bar with a panel one click
-away. Public repo: `github.com/delarc0/system-monitor`.
+away, plus the weekly Claude Code allowance. Public repo: `github.com/delarc0/system-monitor`.
 
 ## Ownership / identity
 
@@ -14,8 +14,7 @@ away. Public repo: `github.com/delarc0/system-monitor`.
 ## Stack
 
 - Swift 6 language mode (Xcode 27), SwiftUI + AppKit, `LSUIElement=YES` menu bar app
-- Swift Charts for the network graph. Everything else is hand-drawn `Path`.
-- Sparkle 2.10 via SPM, wired but not finished (see Distribution)
+- All graphs are hand-drawn `Path`. Sparkle 2.10 via SPM is the one dependency.
 - XcodeGen: `project.yml` is the source of truth. Both
   `SystemMonitor.xcodeproj/` and `SystemMonitor/Info.plist` are generated and
   gitignored. Never edit either; edit `project.yml` and run `xcodegen generate`.
@@ -57,19 +56,14 @@ intro.
 
 ## Architecture
 
-`MetricsService` (main actor) runs one sampling loop, builds a `Snapshot` per
-tick and publishes it. `MenuBarController` owns the `NSStatusItem`, the
-`NSPopover` and the `NotchController`. Views are pure functions of `Snapshot`.
+`MetricsService` (main actor) runs three loops: the main tick builds a `Snapshot`
+from microsecond reads, `ps` runs only while the panel is open, and `claude` runs
+rarely in the background. Slow work can never hold up the menu bar. Views are pure
+functions of what it publishes.
 
-`NotchController` is a borderless, non-activating `NSPanel` at `.statusBar`
-level, sized to the gap between `NSScreen.auxiliaryTopLeftArea` and
-`auxiliaryTopRightArea`. macOS has no island API; ActivityKit is iOS-only.
-It hides itself without a notched screen (closed lid, external only).
-
-`ClaudeSampler` reads `~/.claude/usage-latest.json`, which the user's Claude
-Code statusline script writes on every turn (README, "Claude usage"). That
-JSON is the only documented source of the 5-hour and 7-day plan windows; the
-OAuth usage endpoint community tools hit is undocumented, do not use it.
+`ClaudeSampler` reads `claude -p /usage`, not the status line JSON, which only moves
+in an interactive CLI session and read a stale 0% on a Mac driven through the Agent
+SDK. Do not use the undocumented OAuth usage endpoint community tools hit.
 
 `MenuBarController` exists because SwiftUI's `MenuBarExtra` flattens per-segment
 colours to the menu bar's template tint. The title is built as an
@@ -88,17 +82,15 @@ open -n --env SYSMON_OPEN_PANEL=120 "build/Build/Products/Debug/System Monitor.a
 # value is a delay in seconds, so graphs can fill before you screenshot
 ```
 
-Then find the window and capture it:
-
-```bash
-# CGWindowListCopyWindowInfo for owner "System Monitor" gives the window id
-screencapture -x -o -l <window-id> panel.png
-```
+Add `--env SYSMON_PANEL_PNG=/path/panel.png` to have it write the panel to a PNG
+3 seconds after opening, plus the menu bar title as `panel-menubar.png`, no Screen
+Recording permission needed. The PNGs have no background, so composite them before
+judging contrast. Add `--env SYSMON_LIGHT=1` for the panel in the light theme.
 
 Do this rather than trusting an offscreen `ImageRenderer`. `ImageRenderer` draws
 AppKit controls (segmented pickers, sliders, toggles) as blank placeholders, and
 it will happily render synthetic data that hides real bugs. Two defects in this
-codebase were caught only by screenshotting the live app.
+codebase were caught only by looking at the live app.
 
 ## Gotchas worth knowing
 
@@ -108,16 +100,17 @@ These were all real bugs. Do not reintroduce them.
   `ifi_ibytes`/`ifi_obytes` are `u_int32_t` and wrap every 4 GiB. Widening a
   wrapped counter to `UInt64` before subtracting produces a ~1.8e19 delta that
   pins the chart scale. Use `sysctl(NET_RT_IFLIST2)` and `if_data64`.
-- **Clamp counter deltas and guard time gaps.** Interfaces and disks come and go,
-  and the machine sleeps. Both samplers, and `AlertMonitor`, discard samples
-  spanning more than 15 seconds.
+- **Rates are per key, never from a sum.** Interfaces and disks come and go, and
+  one returning with its old byte count read as a huge burst when summed.
+  `RateCounter` baselines new keys and discards gaps over 15 seconds (sleep).
+- **Keep the App Nap activity.** A napped timer overruns that 15-second guard, and
+  every rate then reads as a sleep.
+- **Memory is internal - purgeable + wired + compressed.** `active` includes file
+  cache and read 8 points high on a 64 GB Mac.
 - **Never let the panel's hosting controller live when the popover is closed.**
   Retaining it makes SwiftUI re-evaluate the whole panel every tick for a hidden
   view. That alone cost 28% CPU. Build it on open, tear it down on close, and
   gate process sampling on visibility.
-- **Swift Charts marks need an explicit `series:`.** Without it, marks sharing an
-  x value are merged into one series and one style, so the second area silently
-  takes the first one's colour.
 - **`Path.addLines` starts with its own `move(to:)`.** Using it to build a filled
   area orphans the baseline corner and closes the shape diagonally, so flat data
   renders as a wedge. Use explicit `addLine(to:)`.
@@ -127,24 +120,13 @@ These were all real bugs. Do not reintroduce them.
 - **`ps %cpu` is a decaying average**, not instantaneous. Accepted deliberately:
   `proc_pid_rusage` is instantaneous but returns EPERM for other users'
   processes, which would drop every root daemon from the list.
-- **`ps` stderr must be `FileHandle.nullDevice`.** Nothing drains it, and a
-  `Pipe` deadlocks the child once its buffer fills.
-- **Never restart the sampling loop to apply a setting.** It reads
-  `updateInterval` at every sleep. Restarting sampled again milliseconds
-  after the last tick and pushed a fake 0% into every history.
+- **`ps` needs `LC_ALL=C`.** Under a Swedish locale it prints `145,6`, which no
+  number parser accepts, and every row disappears.
+- **`runProcess` writes to a temp file, never a Pipe.** A Pipe deadlocks a child
+  that fills it, and reading one to EOF hangs while a grandchild holds it open.
+- **Claude's parse miss is "no data", never 0%.** A zero reads as a full allowance.
 - **The first tick publishes nothing.** CPU is a delta with no baseline yet;
   `buildSnapshot` returns nil rather than a 0% that the history would keep.
-- **`AlertSettings` decodes field by field.** Synthesized `Codable` fails on
-  any missing key, and `try?` then reset every saved threshold the first time
-  a field was added.
-- **Only the expanded island observes `metrics`.** `IslandView` is a clear
-  hover target until it expands; `IslandReadout` is the only subscriber.
-- **No `GeometryReader` inside the island, and `sizingOptions = []` on its
-  hosting view.** With either, AppKit threw from `NSHostingView.updateConstraints`
-  while the panel animated its frame: an intermittent `_crashOnException`
-  within a handful of hover cycles, Release and Debug alike. Resize the panel
-  with `animator()`, never `setFrame(animate:)`, which runs a nested event loop
-  and left the frame stuck part way.
 
 ## Conventions
 
@@ -155,12 +137,6 @@ These were all real bugs. Do not reintroduce them.
 
 ## Distribution
 
-Release builds sign with the Developer ID under the hardened runtime and
-notarize cleanly. `./scripts/release.sh --check` tells you if this Mac is
-release-ready; `./scripts/release.sh 0.3.0` builds, notarizes, staples and stages
-a zip without pushing anything.
-
-Sparkle auto-update is deliberately unfinished: the EdDSA public key in
-`project.yml` is a placeholder and no appcast is hosted, so
-`SUEnableAutomaticChecks` is `NO`. Finishing it is only worth doing if the app
-is ever handed to people who need updates. See `distribution/README.md`.
+`./scripts/release.sh --check` says whether this Mac is release-ready.
+`./scripts/release.sh 0.5.0` builds, notarizes and staples, signs for Sparkle and
+stages the appcast; `--publish` also pushes it. See `distribution/README.md`.

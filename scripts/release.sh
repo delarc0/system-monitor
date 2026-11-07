@@ -1,22 +1,15 @@
 #!/usr/bin/env bash
 #
 # System Monitor release pipeline:
-#   archive -> Developer ID export -> notarize -> staple -> verify -> zip
+#   archive -> Developer ID export -> notarize -> staple -> verify -> Sparkle-sign
+#   -> appcast -> (with --publish) commit, GitHub Release, gh-pages
 #
 # Usage:
-#   ./scripts/release.sh --check          preflight only: is this Mac release-ready?
-#   ./scripts/release.sh 0.3.0            build, notarize and stage locally. Pushes nothing.
+#   ./scripts/release.sh --check              preflight only: is this Mac release-ready?
+#   ./scripts/release.sh 0.5.0                build and stage locally. Pushes nothing.
+#   ./scripts/release.sh 0.5.0 --publish      the same, then ship it.
 #
-# This deliberately stops at a staged, notarized zip. Sparkle auto-update is NOT
-# finished (the EdDSA key in project.yml is a placeholder and no appcast is
-# hosted), so there is no publish step to run yet. Finish those two things first,
-# then extend this script; see distribution/README.md.
-#
-# One-time machine setup:
-#   1. Xcode > Settings > Accounts > Manage Certificates > + > Developer ID Application
-#   2. xcrun notarytool store-credentials AC_NOTARY \
-#        --apple-id <you@lab37.io> --team-id 4D2U237VRC
-#      (the password is an app-specific password from appleid.apple.com)
+# First-time setup is in distribution/README.md.
 
 set -euo pipefail
 
@@ -24,6 +17,7 @@ cd "$(dirname "$0")/.."
 
 TEAM_ID="4D2U237VRC"
 PROFILE="AC_NOTARY"
+REPO="delarc0/system-monitor"
 APP_NAME="System Monitor.app"
 LOG=/tmp/system-monitor-release.log
 
@@ -64,12 +58,17 @@ preflight() {
     bold "git: clean tree at $(git rev-parse --short HEAD)"
   fi
 
-  # Not fatal: you can cut a signed, notarized build without Sparkle. It just
-  # can't auto-update anyone.
   if grep "REPLACE_WITH_SPARKLE_PUBLIC_KEY" project.yml >/dev/null 2>&1; then
-    printf '  \033[33msparkle: public key is still a placeholder, so this build cannot auto-update\033[0m\n'
+    echo "  sparkle: public key is still a placeholder, see distribution/README.md"
+    PREFLIGHT_OK=0
   else
     bold "sparkle: public key set"
+  fi
+
+  if gh auth status >/dev/null 2>&1; then
+    bold "gh: authenticated"
+  else
+    echo "  gh: not authenticated (gh auth login)"; PREFLIGHT_OK=0
   fi
 
   [ "$PREFLIGHT_OK" = 1 ] || fail "preflight failed, fix the items above"
@@ -81,28 +80,30 @@ if [ "${1:-}" = "--check" ]; then
   exit 0
 fi
 
-NEW="${1:-}"
-[ -n "$NEW" ] || fail "usage: ./scripts/release.sh <version>   (or --check)"
-echo "$NEW" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null \
-  || fail "version must look like 1.2.3, got '$NEW'"
+VERSION="${1:-}"
+PUBLISH=0
+[ "${2:-}" = "--publish" ] && PUBLISH=1
+[ -n "$VERSION" ] || fail "usage: ./scripts/release.sh <version> [--publish]   (or --check)"
+echo "$VERSION" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null \
+  || fail "version must look like 1.2.3, got '$VERSION'"
 
 preflight
 
 OLD="$(grep -E '^\s*MARKETING_VERSION:' project.yml | sed -E 's/.*"(.*)".*/\1/')"
 [ -n "$OLD" ] || fail "could not read MARKETING_VERSION from project.yml"
+BUILD="$(grep -E '^\s*CURRENT_PROJECT_VERSION:' project.yml | sed -E 's/.*"(.*)".*/\1/')"
+[ -n "$BUILD" ] || fail "could not read CURRENT_PROJECT_VERSION from project.yml"
 
-step "Version $OLD -> $NEW"
-if [ "$OLD" != "$NEW" ]; then
-  # Fail loudly rather than shipping the old number because a sed silently
-  # matched nothing.
-  grep "MARKETING_VERSION: \"$OLD\"" project.yml >/dev/null || fail "MARKETING_VERSION \"$OLD\" not found"
-  sed -i '' "s/MARKETING_VERSION: \"$OLD\"/MARKETING_VERSION: \"$NEW\"/" project.yml
-  BUILD_NUM="$(grep -E '^\s*CURRENT_PROJECT_VERSION:' project.yml | sed -E 's/.*"(.*)".*/\1/')"
-  sed -i '' "s/CURRENT_PROJECT_VERSION: \"$BUILD_NUM\"/CURRENT_PROJECT_VERSION: \"$((BUILD_NUM + 1))\"/" project.yml
-  bold "project.yml bumped (commit this after the release succeeds)"
-else
-  bold "already at $NEW, rebuilding"
+step "Version $OLD -> $VERSION"
+if [ "$OLD" != "$VERSION" ]; then
+  # Sparkle compares the build number, so one that doesn't move is an update nobody gets.
+  sed -i '' "s/MARKETING_VERSION: \"$OLD\"/MARKETING_VERSION: \"$VERSION\"/" project.yml
+  sed -i '' "s/CURRENT_PROJECT_VERSION: \"$BUILD\"/CURRENT_PROJECT_VERSION: \"$((BUILD + 1))\"/" project.yml
+  BUILD=$((BUILD + 1))
+  grep "MARKETING_VERSION: \"$VERSION\"" project.yml >/dev/null || fail "version bump did not apply"
+  grep "CURRENT_PROJECT_VERSION: \"$BUILD\"" project.yml >/dev/null || fail "build bump did not apply"
 fi
+bold "version $VERSION, build $BUILD"
 
 step "Generating project"
 xcodegen generate >/dev/null
@@ -110,6 +111,7 @@ xcodegen generate >/dev/null
 step "Archiving"
 rm -rf build/SystemMonitor.xcarchive build/export
 xcodebuild -project SystemMonitor.xcodeproj -scheme SystemMonitor -configuration Release \
+  -clonedSourcePackagesDirPath build/SourcePackages \
   -archivePath build/SystemMonitor.xcarchive archive >"$LOG" 2>&1 \
   || { tail -25 "$LOG"; fail "archive failed. Full log: $LOG"; }
 
@@ -121,23 +123,31 @@ xcodebuild -exportArchive -archivePath build/SystemMonitor.xcarchive \
 APP="build/export/$APP_NAME"
 [ -d "$APP" ] || fail "export succeeded but $APP is missing"
 
-step "Zipping"
 mkdir -p build/releases
-ZIP="build/releases/SystemMonitor-$NEW.zip"
+ZIP="build/releases/SystemMonitor-$VERSION.zip"
+
+step "Notarizing"
 rm -f "$ZIP"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
-
-step "Notarizing (this waits on Apple, usually a couple of minutes)"
-# Submit exactly once and inspect the captured output. Piping straight into a
-# check would mean submitting twice.
-NOTARY_OUT="$(xcrun notarytool submit "$ZIP" --keychain-profile "$PROFILE" --wait 2>&1)"
-printf '%s\n' "$NOTARY_OUT" >>"$LOG"
-printf '%s\n' "$NOTARY_OUT" | tail -4
-printf '%s\n' "$NOTARY_OUT" | grep "status: Accepted" >/dev/null \
-  || fail "notarization was not accepted. Full log: $LOG"
+SUBMIT="$(xcrun notarytool submit "$ZIP" --keychain-profile "$PROFILE" 2>&1)" \
+  || { printf '%s\n' "$SUBMIT"; fail "notarytool submit failed"; }
+SUBMISSION="$(printf '%s\n' "$SUBMIT" | awk '/^  id:/ {print $2; exit}')"
+[ -n "$SUBMISSION" ] || { printf '%s\n' "$SUBMIT"; fail "no submission id in notarytool output"; }
+bold "submitted $SUBMISSION, waiting on Apple"
+# `wait` dies on a network blip while the submission keeps processing, so it is retried.
+for attempt in $(seq 1 40); do
+  xcrun notarytool wait "$SUBMISSION" --keychain-profile "$PROFILE" >>"$LOG" 2>&1 && break
+  echo "  wait dropped (attempt $attempt), retrying in 30s"
+  sleep 30
+done
+STATUS="$(xcrun notarytool info "$SUBMISSION" --keychain-profile "$PROFILE" 2>&1 | awk '/status:/ {print $2; exit}')"
+if [ "$STATUS" != "Accepted" ]; then
+  xcrun notarytool log "$SUBMISSION" --keychain-profile "$PROFILE" || true
+  fail "notarization status: ${STATUS:-unknown}"
+fi
 
 step "Stapling"
-xcrun stapler staple "$APP" >>"$LOG" 2>&1 || { tail -20 "$LOG"; fail "stapling failed, so notarization did not succeed"; }
+xcrun stapler staple "$APP" >>"$LOG" 2>&1 || { tail -20 "$LOG"; fail "stapling failed"; }
 
 step "Verifying"
 codesign --verify --deep --strict "$APP" || fail "code signature does not verify"
@@ -145,15 +155,84 @@ spctl -a -vvv "$APP" 2>&1 | grep "source=Notarized Developer ID" >/dev/null \
   || fail "Gatekeeper did not report a notarized Developer ID app"
 bold "signature verifies, Gatekeeper accepts it as Notarized Developer ID"
 
-# Re-zip so the archive contains the stapled ticket. Without this the zip you
-# hand out still triggers a Gatekeeper check on a machine that is offline.
-step "Re-zipping with the stapled ticket"
+# Re-zip so the archive holds the stapled ticket, and sign that final zip: Sparkle
+# checks the signature against the exact bytes it downloads.
+step "Sparkle-signing"
 rm -f "$ZIP"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+SIGN_UPDATE="$(find build/SourcePackages/artifacts -type f -name sign_update 2>/dev/null | head -1)"
+[ -n "$SIGN_UPDATE" ] || fail "sign_update not found under build/SourcePackages"
+ED_LINE="$("$SIGN_UPDATE" --account system-monitor "$ZIP")"
+[ -n "$ED_LINE" ] || fail "sign_update returned nothing, is the private key in this Mac's keychain?"
 
-printf '\n\033[1;32mStaged:\033[0m %s\n' "$ZIP"
-printf '  Notarized and stapled. Copy it to any Mac and it opens with no warning.\n'
-printf '  Nothing was pushed. To install it here:  ./install.sh\n'
-if grep "REPLACE_WITH_SPARKLE_PUBLIC_KEY" project.yml >/dev/null 2>&1; then
-  printf '\n  Auto-update is still not wired. See distribution/README.md.\n'
+step "Appcast"
+URL="https://github.com/${REPO}/releases/download/v${VERSION}/SystemMonitor-${VERSION}.zip"
+ITEM="$(mktemp)"
+cat > "$ITEM" <<EOF
+
+        <item>
+            <title>Version ${VERSION}</title>
+            <sparkle:version>${BUILD}</sparkle:version>
+            <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <pubDate>$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')</pubDate>
+            <enclosure
+                url="${URL}"
+                ${ED_LINE}
+                type="application/octet-stream" />
+        </item>
+EOF
+sed -i '' "/<language>en<\/language>/r ${ITEM}" distribution/appcast.xml
+rm -f "$ITEM"
+xmllint --noout distribution/appcast.xml || fail "appcast.xml is not valid XML after insertion"
+bold "distribution/appcast.xml updated"
+
+if [ "$PUBLISH" != 1 ]; then
+  step "Staged only, nothing pushed"
+  cat <<EOF
+  ${ZIP} is signed, notarized and stapled.
+  project.yml and distribution/appcast.xml carry the staging, uncommitted.
+
+  To publish, reset the staging and re-run:
+    git checkout -- project.yml distribution/appcast.xml
+    ./scripts/release.sh ${VERSION} --publish
+EOF
+  exit 0
 fi
+
+step "Publishing: release commit"
+git add project.yml distribution/appcast.xml
+git commit -m "Release ${VERSION}"
+trap 'printf "\033[1;31mPUBLISH INCOMPLETE:\033[0m the release commit exists. Check origin/main, the GitHub Release and gh-pages to see how far it got.\n" >&2' ERR
+git push origin main
+
+step "Publishing: GitHub Release"
+gh release create "v${VERSION}" "$ZIP" --repo "$REPO" --title "System Monitor ${VERSION}" \
+  --notes "Signed and notarized. Unzip and move to Applications. Existing installs update from the panel."
+
+# The appcast goes last: a feed that names a zip not uploaded yet breaks every update check.
+step "Publishing: appcast to gh-pages"
+WT="build/ghpages-wt"
+rm -rf "$WT"
+git worktree prune
+if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+  git fetch origin gh-pages
+  git worktree add --detach "$WT" FETCH_HEAD
+else
+  git worktree add --orphan -b gh-pages "$WT"
+fi
+cp distribution/appcast.xml "$WT/appcast.xml"
+touch "$WT/.nojekyll"
+git -C "$WT" add appcast.xml .nojekyll
+git -C "$WT" commit -m "appcast: ${VERSION}" >/dev/null
+git -C "$WT" push origin HEAD:refs/heads/gh-pages
+git worktree remove --force "$WT"
+gh api "repos/${REPO}/pages" >/dev/null 2>&1 || \
+  gh api "repos/${REPO}/pages" -X POST -f "source[branch]=gh-pages" -f "source[path]=/" >/dev/null
+
+step "Done"
+cat <<EOF
+  System Monitor ${VERSION} (build ${BUILD}) released.
+    Release: https://github.com/${REPO}/releases/tag/v${VERSION}
+    Appcast: https://delarc0.github.io/system-monitor/appcast.xml
+EOF
