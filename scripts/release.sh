@@ -227,8 +227,10 @@ git -C "$WT" add appcast.xml .nojekyll
 git -C "$WT" commit -m "appcast: ${VERSION}" >/dev/null
 git -C "$WT" push origin HEAD:refs/heads/gh-pages
 git worktree remove --force "$WT"
+# The first push to gh-pages can enable Pages by itself, so a failed POST may just mean that.
 gh api "repos/${REPO}/pages" >/dev/null 2>&1 || \
-  gh api "repos/${REPO}/pages" -X POST -f "source[branch]=gh-pages" -f "source[path]=/" >/dev/null
+  gh api "repos/${REPO}/pages" -X POST -f "source[branch]=gh-pages" -f "source[path]=/" >/dev/null 2>&1 || \
+  gh api "repos/${REPO}/pages" >/dev/null
 
 step "Done"
 cat <<EOF
