@@ -86,6 +86,10 @@ PUBLISH=0
 [ -n "$VERSION" ] || fail "usage: ./scripts/release.sh <version> [--publish]   (or --check)"
 echo "$VERSION" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null \
   || fail "version must look like 1.2.3, got '$VERSION'"
+# From any other branch the release commit would miss main while the appcast still went out.
+if [ "$PUBLISH" = 1 ] && [ "$(git rev-parse --abbrev-ref HEAD)" != main ]; then
+  fail "--publish must run from main"
+fi
 
 preflight
 
@@ -185,6 +189,9 @@ EOF
 sed -i '' "/<language>en<\/language>/r ${ITEM}" distribution/appcast.xml
 rm -f "$ITEM"
 xmllint --noout distribution/appcast.xml || fail "appcast.xml is not valid XML after insertion"
+# sed exits 0 when its anchor is missing, which would publish a feed without this release.
+grep "<sparkle:version>${BUILD}</sparkle:version>" distribution/appcast.xml >/dev/null \
+  || fail "appcast.xml has no entry for build ${BUILD}"
 bold "distribution/appcast.xml updated"
 
 if [ "$PUBLISH" != 1 ]; then
@@ -204,7 +211,7 @@ step "Publishing: release commit"
 git add project.yml distribution/appcast.xml
 git commit -m "Release ${VERSION}"
 trap 'printf "\033[1;31mPUBLISH INCOMPLETE:\033[0m the release commit exists. Check origin/main, the GitHub Release and gh-pages to see how far it got.\n" >&2' ERR
-git push origin main
+git push origin HEAD:main
 
 step "Publishing: GitHub Release"
 gh release create "v${VERSION}" "$ZIP" --repo "$REPO" --title "System Monitor ${VERSION}" \

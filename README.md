@@ -13,7 +13,7 @@ Native Swift/SwiftUI menu bar app. Live CPU, GPU, memory, disk and network, plus
 - **Top processes**: top CPU and top memory, each process resolved to its owning app, so all of an app's helpers read as one row. Click for Activity Monitor, right-click to reveal
 - **Claude**: percent of the weekly allowance used, how much of the week has gone, and when it resets. The row is hidden if Claude Code isn't installed
 
-The readings are local. The one network call is `claude` itself, and Sparkle's update check.
+The readings are local. Only `claude` and Sparkle's update check use the network, and the update check stays off until the first signed release.
 
 ## Requirements
 

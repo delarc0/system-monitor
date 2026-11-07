@@ -88,7 +88,7 @@ rm -rf "/Applications/System Monitor.app"
 defaults delete se.lab37.systemmonitor.mac 2>/dev/null || true
 ```
 
-The `defaults delete` clears the saved menu bar mode. Skip it if the human is reinstalling and wants them kept.
+The `defaults delete` clears the saved menu bar mode. Skip it if the human is reinstalling and wants it kept.
 
 ## Troubleshooting
 
