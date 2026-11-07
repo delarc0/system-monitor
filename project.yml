@@ -55,11 +55,11 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         SUEnableInstallerLauncherService: NO
         SUFeedURL: https://delarc0.github.io/system-monitor/appcast.xml
-        SUPublicEDKey: "REPLACE_WITH_SPARKLE_PUBLIC_KEY"
+        SUPublicEDKey: "g1tKFlTjRM21jJi4DpSg+XBAANKPnGWn0sSTr2KxQ20="
         # The feed isn't hosted and the key above is a placeholder, so an
         # automatic check would prompt the user and then fetch a 404 on every
         # launch. Flip to YES with the first real signed release.
-        SUEnableAutomaticChecks: NO
+        SUEnableAutomaticChecks: YES
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: se.lab37.systemmonitor.mac
