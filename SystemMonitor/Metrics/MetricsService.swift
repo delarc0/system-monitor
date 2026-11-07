@@ -80,8 +80,10 @@ final class MetricsService: ObservableObject {
     private func readSavedClaude() {
         guard Date().timeIntervalSince(claudeSavedCheckedAt) >= Self.claudeSavedCheckEvery else { return }
         claudeSavedCheckedAt = Date()
-        if let saved = ClaudeSampler.readSaved(), saved.readAt > (claude?.readAt ?? .distantPast) {
-            claude = saved
+        Task { [weak self] in
+            let saved = await Task.detached(priority: .utility) { ClaudeSampler.readSaved() }.value
+            guard let self, let saved, saved.readAt > (self.claude?.readAt ?? .distantPast) else { return }
+            self.claude = saved
         }
     }
 
