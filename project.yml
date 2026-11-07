@@ -30,10 +30,11 @@ settings:
       ENABLE_HARDENED_RUNTIME: NO
     Release:
       ENABLE_HARDENED_RUNTIME: YES
-      # The Developer ID cert exists in the login keychain; Sparkle refuses to
-      # apply an update that isn't codesigned by a trusted identity, so Release
-      # must not fall back to the self-signed "Bark Dev".
-      CODE_SIGN_IDENTITY: "Developer ID Application"
+      # Archived with a development identity, then release.sh's export re-signs it
+      # as Developer ID through Apple's cloud signing, so no Mac needs that cert's
+      # private key. Needs Xcode signed in to the team's account holder.
+      CODE_SIGN_STYLE: Automatic
+      CODE_SIGN_IDENTITY: "Apple Development"
 
 targets:
   SystemMonitor:

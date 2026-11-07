@@ -37,13 +37,6 @@ preflight() {
     echo "  xcodegen: MISSING (brew install xcodegen)"; PREFLIGHT_OK=0
   fi
 
-  if security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application: .*(${TEAM_ID})" >/dev/null; then
-    bold "cert: Developer ID Application (${TEAM_ID}) present"
-  else
-    echo "  cert: MISSING - Xcode > Settings > Accounts > Manage Certificates > + > Developer ID Application"
-    PREFLIGHT_OK=0
-  fi
-
   if xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1; then
     bold "notary: keychain profile ${PROFILE} works"
   else
@@ -116,12 +109,12 @@ step "Archiving"
 rm -rf build/SystemMonitor.xcarchive build/export
 xcodebuild -project SystemMonitor.xcodeproj -scheme SystemMonitor -configuration Release \
   -clonedSourcePackagesDirPath build/SourcePackages \
-  -archivePath build/SystemMonitor.xcarchive archive >"$LOG" 2>&1 \
-  || { tail -25 "$LOG"; fail "archive failed. Full log: $LOG"; }
+  -archivePath build/SystemMonitor.xcarchive -allowProvisioningUpdates archive >"$LOG" 2>&1 \
+  || { tail -25 "$LOG"; fail "archive failed. Is this Mac signed in to Xcode (Settings > Accounts)? Full log: $LOG"; }
 
 step "Exporting with Developer ID"
 xcodebuild -exportArchive -archivePath build/SystemMonitor.xcarchive \
-  -exportPath build/export -exportOptionsPlist distribution/ExportOptions.plist >>"$LOG" 2>&1 \
+  -exportPath build/export -exportOptionsPlist distribution/ExportOptions.plist -allowProvisioningUpdates >>"$LOG" 2>&1 \
   || { tail -25 "$LOG"; fail "export failed. Full log: $LOG"; }
 
 APP="build/export/$APP_NAME"
