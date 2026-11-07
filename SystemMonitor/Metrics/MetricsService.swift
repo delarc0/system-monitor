@@ -5,14 +5,18 @@ import SwiftUI
 ///
 /// Three independent loops, so the slow ones can never hold up the numbers in the
 /// menu bar: the main tick is microsecond reads only, `ps` runs only while the panel
-/// is open, and `claude` runs rarely in the background.
+/// is open, and `claude` runs only when its saved reading has gone stale.
 @MainActor
 final class MetricsService: ObservableObject {
     static let shared = MetricsService()
     static let interval: TimeInterval = 2
 
-    private static let claudeMaxAge: TimeInterval = 30 * 60
-    private static let claudeMaxAgeOnOpen: TimeInterval = 5 * 60
+    private static let claudeSavedCheckEvery: TimeInterval = 30
+    /// A running session rewrites the saved reading about every 5 minutes and sometimes
+    /// skips one, which must not set off a heavy run.
+    private static let claudeStaleAfter: TimeInterval = 15 * 60
+    private static let claudeRetryEvery: TimeInterval = 30 * 60
+    private static let claudeRetryEveryOnOpen: TimeInterval = 5 * 60
 
     @Published private(set) var snapshot: Snapshot?
     @Published private(set) var processes = TopProcesses()
@@ -30,7 +34,8 @@ final class MetricsService: ObservableObject {
     private var processLoop: Task<Void, Never>?
     private var claudeFetch: Task<Void, Never>?
     // First fetch 30 s after launch: login is already the busiest moment of the day.
-    private var claudeAttemptedAt = Date(timeIntervalSinceNow: 30 - claudeMaxAge)
+    private var claudeAttemptedAt = Date(timeIntervalSinceNow: 30 - claudeRetryEvery)
+    private var claudeSavedCheckedAt = Date.distantPast
     private var activity: NSObjectProtocol?
 
     func start() {
@@ -45,7 +50,8 @@ final class MetricsService: ObservableObject {
             while !Task.isCancelled {
                 guard let self else { return }
                 if let snapshot = self.buildSnapshot() { self.snapshot = snapshot }
-                self.refreshClaude(olderThan: Self.claudeMaxAge)
+                self.readSavedClaude()
+                self.refreshClaude(retryEvery: Self.claudeRetryEvery)
                 try? await Task.sleep(for: .seconds(Self.interval))
             }
         }
@@ -58,7 +64,7 @@ final class MetricsService: ObservableObject {
         processLoop = nil
         guard visible else { return }
 
-        refreshClaude(olderThan: Self.claudeMaxAgeOnOpen)
+        refreshClaude(retryEvery: Self.claudeRetryEveryOnOpen)
         processLoop = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
@@ -71,10 +77,19 @@ final class MetricsService: ObservableObject {
         }
     }
 
-    private func refreshClaude(olderThan maxAge: TimeInterval) {
+    private func readSavedClaude() {
+        guard Date().timeIntervalSince(claudeSavedCheckedAt) >= Self.claudeSavedCheckEvery else { return }
+        claudeSavedCheckedAt = Date()
+        if let saved = ClaudeSampler.readSaved(), saved.readAt > (claude?.readAt ?? .distantPast) {
+            claude = saved
+        }
+    }
+
+    private func refreshClaude(retryEvery: TimeInterval) {
         guard ClaudeSampler.binaryPath != nil,
               claudeFetch == nil,
-              Date().timeIntervalSince(claudeAttemptedAt) >= maxAge else { return }
+              Date().timeIntervalSince(claude?.readAt ?? .distantPast) >= Self.claudeStaleAfter,
+              Date().timeIntervalSince(claudeAttemptedAt) >= retryEvery else { return }
         claudeAttemptedAt = Date()
         claudeFetch = Task { [weak self] in
             // A failed run keeps the last reading, which the panel marks with its age.

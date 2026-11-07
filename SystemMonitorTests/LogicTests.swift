@@ -71,4 +71,30 @@ final class LogicTests: XCTestCase {
         XCTAssertEqual(oddDate?.percent, 10)
         XCTAssertNil(oddDate?.weekElapsed, "an unreadable reset only hides the pace")
     }
+
+    func testSavedClaudeUsageParsesRealShapeAndNeverInventsZero() throws {
+        // 2026-11-07T15:00:00Z, four days before the reset.
+        let config = """
+            {"numStartups": 1, "oauthAccount": {"accountUuid": "x"}, "cachedUsageUtilization": {
+             "fetchedAtMs": 1794063600000, "accountUuid": "x",
+             "utilization": {"five_hour": null, "seven_day": {"utilization": 60,
+             "resets_at": "2026-11-11T15:00:00.520382+00:00", "limit_dollars": null}, "seven_day_opus": null}}}
+            """
+        let zone = try XCTUnwrap(TimeZone(identifier: "Europe/Stockholm"))
+        let now = Date(timeIntervalSince1970: 1_794_063_660)
+        let usage = try XCTUnwrap(ClaudeSampler.parseSaved(Data(config.utf8), zone: zone, now: now))
+        XCTAssertEqual(usage.percent, 60)
+        XCTAssertEqual(usage.resets, "Nov 11 at 4pm", "worded like /usage")
+        XCTAssertEqual(try XCTUnwrap(usage.weekElapsed), 3.0 / 7, accuracy: 0.001)
+        XCTAssertEqual(usage.readAt, Date(timeIntervalSince1970: 1_794_063_600))
+
+        for missing in ["{}", "not json", #"{"cachedUsageUtilization": {"fetchedAtMs": 1, "utilization": {"seven_day": null}}}"#] {
+            XCTAssertNil(ClaudeSampler.parseSaved(Data(missing.utf8)), missing)
+        }
+
+        let otherAccount = config.replacingOccurrences(of: #""oauthAccount": {"accountUuid": "x"}"#, with: #""oauthAccount": {"accountUuid": "y"}"#)
+        XCTAssertNil(ClaudeSampler.parseSaved(Data(otherAccount.utf8), now: now), "someone else's usage after a login switch")
+        let afterReset = now.addingTimeInterval(5 * 86_400)
+        XCTAssertNil(ClaudeSampler.parseSaved(Data(config.utf8), now: afterReset), "last week's number")
+    }
 }

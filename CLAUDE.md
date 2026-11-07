@@ -61,9 +61,14 @@ from microsecond reads, `ps` runs only while the panel is open, and `claude` run
 rarely in the background. Slow work can never hold up the menu bar. Views are pure
 functions of what it publishes.
 
-`ClaudeSampler` reads `claude -p /usage`, not the status line JSON, which only moves
-in an interactive CLI session and read a stale 0% on a Mac driven through the Agent
-SDK. Do not use the undocumented OAuth usage endpoint community tools hit.
+`ClaudeSampler` reads `cachedUsageUtilization` from `~/.claude.json`. Claude Code writes
+it after its own usage read, and something running rewrote it on a 5-minute grid with a
+skipped write (watched 2026-11-07; which process is not identified). Discard it on another
+account or after the reset. `claude -p /usage` is the heavy fallback once it is 15 minutes
+old. Not the status line
+JSON, which only moves in an interactive CLI session and read a stale 0% on a Mac driven
+through the Agent SDK. Not the OAuth usage endpoint: undocumented, and it means reading
+the login token from the keychain, which Anthropic's terms restrict.
 
 `MenuBarController` exists because SwiftUI's `MenuBarExtra` flattens per-segment
 colours to the menu bar's template tint. The title is built as an

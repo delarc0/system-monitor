@@ -29,9 +29,11 @@ Builds, installs to `/Applications` and launches. See [AGENTS.md](AGENTS.md).
 
 ## Claude usage
 
-The app runs `claude -p /usage` at background priority every 30 minutes, and when the panel opens if the last read is over 5 minutes old. It reads the "Current week (all models)" line and nothing else. The call costs no usage, but it is heavy: about 8 seconds and 500 MB each time.
+Claude Code saves its last usage reading in `~/.claude.json`, and a running Claude Code process rewrites it about every 5 minutes. The app reads that file every 30 seconds, which costs almost nothing and needs no credentials.
 
-`/usage` in `-p` mode is not a documented interface. If the wording changes, the row says "no data" rather than a wrong number.
+When that reading is over 15 minutes old, the app runs `claude -p /usage` at background priority, at most every 30 minutes, or every 5 if the panel is open. That costs no usage but is heavy: 8 to 24 seconds and about 500 MB.
+
+Neither source is documented. If both change, the row says "no data" rather than a wrong number.
 
 ## Development
 
