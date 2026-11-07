@@ -7,6 +7,18 @@
         <language>en</language>
 
         <item>
+            <title>Version 0.5.1</title>
+            <sparkle:version>6</sparkle:version>
+            <sparkle:shortVersionString>0.5.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <pubDate>Sat, 07 Nov 2026 18:22:02 +0000</pubDate>
+            <enclosure
+                url="https://github.com/delarc0/system-monitor/releases/download/v0.5.1/SystemMonitor-0.5.1.zip"
+                sparkle:edSignature="AZiYgSs8ObW23YDPkX8tAQt6QZcKzjMJDRHriwL+0x8oJTrMLDxd79uHAXyBVDla3i8WIPMZX/cJ8kjgjT1NCA==" length="1696974"
+                type="application/octet-stream" />
+        </item>
+
+        <item>
             <title>Version 0.5.0</title>
             <sparkle:version>5</sparkle:version>
             <sparkle:shortVersionString>0.5.0</sparkle:shortVersionString>
