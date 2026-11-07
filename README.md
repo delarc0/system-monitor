@@ -6,7 +6,7 @@ Native Swift/SwiftUI menu bar app. Live CPU, GPU, memory, disk and network, plus
 
 ## What it shows
 
-- **Menu bar**: labeled readings with the number color-coded, plus a hover tooltip that adds the disk. Memory is colored by the kernel's pressure state, not its percentage. A red disk figure appears under 10% free
+- **Menu bar**: labeled readings with the number color-coded, Claude first, plus a hover tooltip that adds the disk and the reset time. Memory is colored by the kernel's pressure state, not its percentage. A red disk figure appears under 10% free
 - **CPU, GPU, Memory**: a 0 to 100% trace of the last 2 minutes. Memory matches Activity Monitor's "Memory Used"
 - **Disk**: capacity used, matching Finder's accounting, plus read and write rates when there is real I/O
 - **Network**: download above the axis and upload mirrored below, on one scale

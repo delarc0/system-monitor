@@ -132,6 +132,14 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
         // The number carries the colour. Memory is coloured by the kernel's pressure
         // state, not its percentage: a Mac near 90% used is usually fine.
+        // First and in every display mode: it's the reading the bar exists for.
+        if let claude = metrics.claude {
+            // Dimmed once the reads are failing, so an old number can't pass as current.
+            let isStale = Date().timeIntervalSince(claude.readAt) >= 3600
+            append("Claude", claude.percent, isStale ? .tertiaryLabelColor : loadNSColor(claude.percent))
+        } else if ClaudeSampler.binaryPath != nil {
+            attr.append(NSAttributedString(string: "Claude --", attributes: labelAttributes))
+        }
         append("CPU", snap.cpu.overall, loadNSColor(snap.cpu.overall))
         if prefs.menuBarDisplay == .cpuGpu || prefs.menuBarDisplay == .all, let gpu = snap.gpu.utilization {
             append("GPU", gpu, loadNSColor(gpu))
@@ -154,6 +162,9 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
     private func tooltip(for snap: Snapshot) -> String {
         var parts = [String(format: "CPU %.0f%%", snap.cpu.overall)]
+        if let claude = metrics.claude {
+            parts.insert(String(format: "Claude %.0f%%", claude.percent) + (claude.resets.map { ", resets \($0)" } ?? ""), at: 0)
+        }
         if let gpu = snap.gpu.utilization { parts.append(String(format: "GPU %.0f%%", gpu)) }
         parts.append(String(format: "Memory %.0f%%", snap.memory.percent))
         parts.append(String(format: "Disk %.0f%%", snap.disk.percent))
